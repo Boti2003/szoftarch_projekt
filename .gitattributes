@@ -1,0 +1,16 @@
+# Alapértelmezett: szöveges fájlok LF-re normalizálva a repóban.
+* text=auto eol=lf
+
+# Shell scriptek és wrapper mindig LF (Linux/Docker futtatja).
+*.sh text eol=lf
+mvnw text eol=lf
+
+# Windows batch mindig CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Bináris fájlok, amiket nem szabad módosítani.
+*.jar binary
+*.png binary
+*.jpg binary
+*.pem binary

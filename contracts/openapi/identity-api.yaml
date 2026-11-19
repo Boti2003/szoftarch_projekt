@@ -1,0 +1,147 @@
+openapi: 3.1.0
+info:
+  title: Identity Service API
+  version: 0.0.1
+  description: >
+    Regisztráció, auth, profil, pont/szint és globális ranglista (TERV 7.2, 7.3).
+    Ez váz: az endpointok és a hibaséma rögzítve; a DTO-kat a service gazdája tölti fel.
+servers:
+  - url: /api/v1
+    description: Publikus API (Gateway-en keresztül)
+  - url: /internal/v1
+    description: Belső API (csak a belső hálózaton, X-Internal-Api-Key)
+
+tags:
+  - name: auth
+  - name: users
+  - name: leaderboards
+  - name: internal
+
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Regisztráció
+      security: []
+      responses:
+        '201': { description: Létrehozva }
+        '400': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Bejelentkezés (email vagy username + jelszó)
+      security: []
+      responses:
+        '200': { description: Access token + refresh cookie }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Token rotáció refresh cookie alapján
+      security: []
+      responses:
+        '200': { description: Új access token }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Refresh token visszavonása
+      responses:
+        '204': { description: Kijelentkezve }
+  /users/me:
+    get:
+      tags: [users]
+      summary: Saját profil, pont, szint, következő küszöb
+      responses:
+        '200': { description: OK }
+        '401': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [users]
+      summary: displayName / username módosítása
+      responses:
+        '200': { description: OK }
+        '400': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /users/search:
+    get:
+      tags: [users]
+      summary: Prefix keresés felhasználónévre (max 20)
+      parameters:
+        - { name: username, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+  /users/{id}/public:
+    get:
+      tags: [users]
+      summary: Publikus profil és alapstatisztika
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/Problem' }
+  /leaderboards/global:
+    get:
+      tags: [leaderboards]
+      summary: Globális ranglista + saját helyezés
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        '200': { description: OK }
+
+  /users/{userId}/points:
+    post:
+      tags: [internal]
+      servers:
+        - url: /internal/v1
+      summary: Idempotens pontjóváírás (belső, Learning hívja)
+      parameters:
+        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Jóváírva vagy már létező eredmény }
+        '400': { $ref: '#/components/responses/Problem' }
+  /users/public-stats:batch:
+    post:
+      tags: [internal]
+      servers:
+        - url: /internal/v1
+      summary: Max 100 UUID nyilvános profil/pont lekérése (belső, Social hívja)
+      responses:
+        '200': { description: OK }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Problem:
+      description: RFC 9457 problem+json
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+  schemas:
+    ProblemDetails:
+      type: object
+      description: RFC 9457 hibaformátum (TERV 7.1)
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code: { type: string }
+        traceId: { type: string }
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+security:
+  - bearerAuth: []

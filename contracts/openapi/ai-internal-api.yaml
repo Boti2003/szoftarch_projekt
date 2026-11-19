@@ -1,0 +1,73 @@
+openapi: 3.1.0
+info:
+  title: AI Service Internal API
+  version: 0.0.1
+  description: >
+    Belső szolgáltatás, közvetlen frontend route nélkül (TERV 4.4, 7.7).
+    Fordítás- és szituációértékelés. Csak a belső hálózaton, X-Internal-Api-Key.
+servers:
+  - url: /internal/v1
+
+tags:
+  - name: translations
+  - name: scenarios
+
+paths:
+  /translations:evaluate:
+    post:
+      tags: [translations]
+      summary: Fordítás strukturált értékelése (score, accepted, feedback)
+      responses:
+        '200': { description: OK }
+        '400': { $ref: '#/components/responses/Problem' }
+        '502': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /scenario-sessions:
+    post:
+      tags: [scenarios]
+      summary: Session indítása megbízható scenario configgal
+      responses:
+        '201': { description: Létrehozva }
+        '502': { $ref: '#/components/responses/Problem' }
+  /scenario-sessions/{id}/messages:
+    post:
+      tags: [scenarios]
+      summary: Forduló folytatása
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: OK }
+        '502': { $ref: '#/components/responses/Problem' }
+  /scenario-sessions/{id}/complete:
+    post:
+      tags: [scenarios]
+      summary: Session lezárása és összegző értékelés
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: OK }
+
+components:
+  securitySchemes:
+    internalApiKey:
+      type: apiKey
+      in: header
+      name: X-Internal-Api-Key
+  responses:
+    Problem:
+      description: RFC 9457 problem+json
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+  schemas:
+    ProblemDetails:
+      type: object
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code: { type: string }
+        traceId: { type: string }
+
+security:
+  - internalApiKey: []

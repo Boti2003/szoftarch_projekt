@@ -1,0 +1,131 @@
+openapi: 3.1.0
+info:
+  title: Learning Service API
+  version: 0.0.1
+  description: >
+    Nyelvek, leckék, feladatok, progress, napi kihívás, AI-workflow orkesztráció
+    és belső duel-set API (TERV 7.4, 7.5). Váz: endpointok + hibaséma rögzítve.
+servers:
+  - url: /api/v1
+  - url: /internal/v1
+
+tags:
+  - name: languages
+  - name: lessons
+  - name: exercises
+  - name: daily
+  - name: ai-scenarios
+  - name: internal
+
+paths:
+  /languages:
+    get: { tags: [languages], summary: Elérhető nyelvek, responses: { '200': { description: OK } } }
+  /learning/enrollments:
+    get: { tags: [languages], summary: Saját tanult nyelvek és aktív nyelv, responses: { '200': { description: OK } } }
+  /learning/enrollments/{languageId}/active:
+    put:
+      tags: [languages]
+      summary: Nyelv felvétele/aktiválása
+      parameters: [{ name: languageId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /languages/{languageId}/lessons:
+    get:
+      tags: [lessons]
+      summary: Sorrendezett leckék saját státusszal
+      parameters: [{ name: languageId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /lessons/{lessonId}:
+    get:
+      tags: [lessons]
+      summary: Elmélet és feladatok metaadata
+      parameters: [{ name: lessonId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK }, '404': { $ref: '#/components/responses/Problem' } }
+  /exercises/{exerciseId}:
+    get:
+      tags: [exercises]
+      summary: Feladat prezentáció helyes megoldás nélkül
+      parameters: [{ name: exerciseId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /exercises/{exerciseId}/attempts:
+    post:
+      tags: [exercises]
+      summary: Automatikus vagy translation válasz beküldése (Idempotency-Key)
+      parameters: [{ name: exerciseId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: Kiértékelve }, '400': { $ref: '#/components/responses/Problem' } }
+  /learning/progress/summary:
+    get: { tags: [lessons], summary: Teljesített leckék és aktív nyelv összesítő, responses: { '200': { description: OK } } }
+  /daily-challenges/today:
+    get:
+      tags: [daily]
+      summary: Napi feladatsor és saját státusz
+      parameters: [{ name: languageId, in: query, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /daily-challenges/today/exercises/{exerciseId}/attempts:
+    post:
+      tags: [daily]
+      summary: Napi válasz beküldése
+      parameters: [{ name: exerciseId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /ai-scenarios/{exerciseId}/sessions:
+    post:
+      tags: [ai-scenarios]
+      summary: Learning attempt + belső AI session indítása
+      parameters: [{ name: exerciseId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '201': { description: Létrehozva }, '502': { $ref: '#/components/responses/Problem' } }
+  /ai-scenarios/sessions/{sessionId}/messages:
+    post:
+      tags: [ai-scenarios]
+      summary: Felhasználói üzenet, AI-válasz
+      parameters: [{ name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK }, '502': { $ref: '#/components/responses/Problem' } }
+  /ai-scenarios/sessions/{sessionId}/complete:
+    post:
+      tags: [ai-scenarios]
+      summary: Záróértékelés, progress és pont
+      parameters: [{ name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+
+  /duel-sets:
+    post:
+      tags: [internal]
+      servers: [{ url: /internal/v1 }]
+      summary: 5 feladatból álló készlet létrehozása (Social hívja)
+      responses: { '201': { description: Létrehozva } }
+  /duel-sets/{setId}:
+    get:
+      tags: [internal]
+      servers: [{ url: /internal/v1 }]
+      summary: Feladatprezentációk megoldás nélkül
+      parameters: [{ name: setId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /duel-sets/{setId}/answers:
+    post:
+      tags: [internal]
+      servers: [{ url: /internal/v1 }]
+      summary: Egy résztvevő egy válaszának idempotens pontozása
+      parameters: [{ name: setId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  responses:
+    Problem:
+      description: RFC 9457 problem+json
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+  schemas:
+    ProblemDetails:
+      type: object
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code: { type: string }
+        traceId: { type: string }
+
+security:
+  - bearerAuth: []

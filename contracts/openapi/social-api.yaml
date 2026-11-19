@@ -1,0 +1,116 @@
+openapi: 3.1.0
+info:
+  title: Social Service API
+  version: 0.0.1
+  description: >
+    Barátok, kérelmek, ranglista, párbaj életciklus és értesítések (TERV 7.6).
+    Váz: endpointok + hibaséma rögzítve; DTO-kat a service gazdája tölti fel.
+servers:
+  - url: /api/v1
+
+tags:
+  - name: friends
+  - name: duels
+  - name: notifications
+
+paths:
+  /friend-requests:
+    post: { tags: [friends], summary: Kérelem küldése receiverId alapján, responses: { '201': { description: OK }, '409': { $ref: '#/components/responses/Problem' } } }
+    get:
+      tags: [friends]
+      summary: Kérelmek listája
+      parameters:
+        - { name: direction, in: query, schema: { type: string, enum: [incoming, outgoing] } }
+        - { name: status, in: query, schema: { type: string } }
+      responses: { '200': { description: OK } }
+  /friend-requests/{id}/accept:
+    post:
+      tags: [friends]
+      summary: Elfogadás
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /friend-requests/{id}/reject:
+    post:
+      tags: [friends]
+      summary: Elutasítás
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /friends:
+    get:
+      tags: [friends]
+      summary: Barátlista Identity-statisztikákkal
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses: { '200': { description: OK } }
+  /friends/{friendId}:
+    delete:
+      tags: [friends]
+      summary: Barátság törlése
+      parameters: [{ name: friendId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '204': { description: Törölve } }
+  /leaderboards/friends:
+    get: { tags: [friends], summary: Saját felhasználó + barátok rangsora, responses: { '200': { description: OK } } }
+  /duels:
+    post: { tags: [duels], summary: Párbaj létrehozása (opponentId, languageId), responses: { '201': { description: OK }, '409': { $ref: '#/components/responses/Problem' } } }
+    get:
+      tags: [duels]
+      summary: Saját párbajok
+      parameters: [{ name: status, in: query, schema: { type: string } }]
+      responses: { '200': { description: OK } }
+  /duels/{id}:
+    get:
+      tags: [duels]
+      summary: Állapot és a jogosultan látható eredmény
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /duels/{id}/accept:
+    post:
+      tags: [duels]
+      summary: Kihívás elfogadása
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /duels/{id}/reject:
+    post:
+      tags: [duels]
+      summary: Kihívás elutasítása
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /duels/{id}/exercises:
+    get:
+      tags: [duels]
+      summary: Azonos feladatsor Learningből
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /duels/{id}/answers:
+    post:
+      tags: [duels]
+      summary: Válasz orkesztrált kiértékelése
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: OK } }
+  /notifications/summary:
+    get: { tags: [notifications], summary: Függő barátkérelmek és párbajok száma/listája, responses: { '200': { description: OK } } }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  responses:
+    Problem:
+      description: RFC 9457 problem+json
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+  schemas:
+    ProblemDetails:
+      type: object
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code: { type: string }
+        traceId: { type: string }
+
+security:
+  - bearerAuth: []

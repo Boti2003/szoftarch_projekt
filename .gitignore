@@ -1,0 +1,38 @@
+# ---- Java / Maven ----
+target/
+*.class
+*.jar
+!/.mvn/wrapper/maven-wrapper.jar
+*.war
+*.log
+hs_err_pid*
+
+# ---- Node / Frontend ----
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+coverage/
+playwright-report/
+test-results/
+
+# ---- Secrets & env ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!infra/**/dev-*.key
+secrets/
+
+# ---- IDE ----
+.idea/
+*.iml
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Docker ----
+*.pid
