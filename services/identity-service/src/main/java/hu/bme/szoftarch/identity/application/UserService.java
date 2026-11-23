@@ -5,6 +5,7 @@ import hu.bme.szoftarch.identity.api.dto.UpdateProfileRequest;
 import hu.bme.szoftarch.identity.api.dto.UserProfileResponse;
 import hu.bme.szoftarch.identity.application.exception.ConflictException;
 import hu.bme.szoftarch.identity.application.exception.NotFoundException;
+import hu.bme.szoftarch.identity.domain.LevelCalculator;
 import hu.bme.szoftarch.identity.domain.User;
 import hu.bme.szoftarch.identity.domain.UserStats;
 import hu.bme.szoftarch.identity.infrastructure.persistence.UserRepository;
@@ -43,7 +44,7 @@ public class UserService {
         UserStats stats = user.getStats() != null ? user.getStats() :
                 userStatsRepository.findById(userId).orElseGet(() -> new UserStats(user));
 
-        long nextLevelPoints = (long) Math.pow(stats.getLevel(), 2) * 50;
+        long nextLevelPoints = LevelCalculator.calculateNextLevelPoints(stats.getLevel());
 
         return new UserProfileResponse(
                 user.getId(),

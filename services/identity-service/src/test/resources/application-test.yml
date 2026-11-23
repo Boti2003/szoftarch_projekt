@@ -13,3 +13,6 @@ spring:
           time_zone: UTC
   flyway:
     enabled: false
+
+internal:
+  api-key: test-internal-api-key-12345

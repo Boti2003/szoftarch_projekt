@@ -254,3 +254,32 @@ A rendszer deklaratív, központosított hibakezelést használ, így a kontroll
 7. **RFC 9457 Problem Details generálás:** A handler összeállítja a szabványos `ProblemDetails` rekordot (`type`, `title`, `status`, `detail`, `instance`, `code`, opcionálisan `fieldErrors`).
 8. **JSON formázás (`@JsonInclude(NON_NULL)`):** A Jackson szerializáció során a `NON_NULL` beállítás biztosítja, hogy a nem releváns mezők (pl. konfliktus esetén a `fieldErrors` és a `traceId`) kimaradjanak a válaszból.
 9. **Kliens válasz:** A szerver `application/problem+json` Content-Type fejléc mellett adja vissza a szabványos hibaobjektumot.
+
+---
+
+## 15. Belső mikroszolgáltatás-kommunikáció és pontjóváírási idempotencia
+
+A más mikroszolgáltatásokból (pl. Kurzus/Feladat vagy Játék szerviz) érkező belső kérések kiszolgálása a `/internal/v1/**` végpontokon keresztül valósul meg.
+
+### 15.1. Belső API védelem (`X-Internal-Api-Key`)
+- **Kontextus:** A belső végpontok nem felhasználói Bearer JWT-t várnak, hanem a mikroszolgáltatások közötti dedikált kulcsot.
+- **Megvalósítás:** Az `InternalApiKeyFilter` (`OncePerRequestFilter`) a Spring Security szűrőláncának elején ellenőrzi az `X-Internal-Api-Key` fejlécet.
+- **Időzítéses támadások elleni védelem:** A kulcs összehasonlítása kötelezően konstans idejű algoritmussal történik (`MessageDigest.isEqual`), megakadályozva, hogy a támadó byte-onkénti válaszidő-méréssel fejtse vissza a belső kulcsot.
+- **Hibaeset:** Hiányzó vagy hibás kulcs esetén `[SECURITY_ALERT: INTERNAL_API_KEY_INVALID]` audit napló képződik és 401 Unauthorized RFC 9457 ProblemDetails válasz érkezik.
+
+### 15.2. Idempotencia garanciák a pontjóváírásnál
+- **Kontextus:** Hálózati szakadás, timeout vagy újrapróbálkozási vihar (retry storm) esetén ugyanaz a pontjóváírási kérés többször is megérkezhet a Learning szerviztől.
+- **Adatbázisszintű garancia:** A `point_transactions` tábla `idempotency_key` oszlopa egyedi (`UNIQUE`) megszorítással védett.
+- **Kezelés:** 
+  1. Ha egy már feldolgozott kulccsal érkezik kérés, a `PointService` nem hajt végre újabb jóváírást, és nem dob adatbázis-hibát, hanem azonnal visszaadja az eredeti tranzakció eredményét és a felhasználó aktuális statisztikáját `duplicate: true` jelzéssel.
+  2. Ha egy már létező idempotencia-kulcsot egy másik felhasználó azonosítójával próbálnak felhasználni, a rendszer 409 Conflict hibát dob (`"Idempotency key already used for another user"`).
+
+### 15.3. Szintszámítás és DRY architektúra (`LevelCalculator`)
+- A progresszív gyökös szintszámítás és a következő szint küszöbértékének kalkulációja dedikált, tiszta segédosztályba (`LevelCalculator`) került.
+- Mind a `UserService`, mind a `PointService` ezt az egyetlen forrást használja, kizárva a számítási képlet kódduplikációját.
+- A számítás $O(1)$ idő- és tárigényű, közvetlenül memóriában fut le.
+
+### 15.4. Batch statisztika lekérdezés (`public-stats:batch`)
+- A többi mikroszolgáltatás számára biztosított csoportos statisztika-lekérdezés (`POST /internal/v1/users/public-stats:batch`) a `userStatsRepository.findAllWithUserByUserIds(...)` metódust használja.
+- A `JOIN FETCH s.user` biztosítja, hogy a felhasználói profilok és a játékstatisztikák egyetlen SQL lekérdezéssel jöjjenek fel, teljesen kiküszöbölve az $N+1$ lekérdezési anomáliát.
+- A válasz a már meglévő `PublicProfileDto`-t használja újra (DRY alapelv).

@@ -1,8 +1,10 @@
 package hu.bme.szoftarch.identity.infrastructure;
 
 import hu.bme.szoftarch.identity.api.dto.ProblemDetails;
+import hu.bme.szoftarch.identity.infrastructure.security.InternalApiKeyFilter;
 import hu.bme.szoftarch.identity.infrastructure.security.JwtProperties;
 import hu.bme.szoftarch.identity.infrastructure.security.RsaKeyLoader;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -18,6 +20,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.file.Path;
@@ -27,6 +30,9 @@ import java.security.interfaces.RSAPublicKey;
 public class SecurityConfig {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Value("${internal.api-key}")
+    private String internalApiKey;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -48,8 +54,9 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .addFilterBefore(new InternalApiKeyFilter(internalApiKey), UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/v1/auth/**", "/actuator/**", "/error").permitAll()
+                .requestMatchers("/api/v1/auth/**", "/internal/**", "/actuator/**", "/error").permitAll()
                 .anyRequest().authenticated()
             )
             .oauth2ResourceServer(oauth2 -> oauth2
