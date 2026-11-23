@@ -1,0 +1,49 @@
+### AI Service – belső fordítás-értékelés kézi próbái
+### Használat: VS Code REST Client / IntelliJ HTTP Client, vagy másold curl-be.
+### A service lokálisan a 8084 porton fut (mvnw -pl :ai-service spring-boot:run).
+
+@host = http://localhost:8084
+
+### 1) Tökéletes egyezés -> score 1.0, accepted true
+POST {{host}}/internal/v1/translations:evaluate
+Content-Type: application/json
+
+{
+  "sourceText": "A kutya fut.",
+  "targetLanguage": "en",
+  "learnerTranslation": "The dog runs.",
+  "referenceTranslations": ["The dog runs."]
+}
+
+### 2) Részleges egyezés küszöb alatt -> score 0.5, accepted false
+POST {{host}}/internal/v1/translations:evaluate
+Content-Type: application/json
+
+{
+  "sourceText": "A macska alszik.",
+  "targetLanguage": "en",
+  "learnerTranslation": "The cat",
+  "referenceTranslations": ["The cat is sleeping."]
+}
+
+### 3) Ékezet/írásjel figyelmen kívül -> score 1.0
+POST {{host}}/internal/v1/translations:evaluate
+Content-Type: application/json
+
+{
+  "sourceText": "Jó reggelt",
+  "targetLanguage": "en",
+  "learnerTranslation": "good morning",
+  "referenceTranslations": ["Good morning!"]
+}
+
+### 4) Üres fordítás -> 400 Bad Request (validáció)
+POST {{host}}/internal/v1/translations:evaluate
+Content-Type: application/json
+
+{
+  "sourceText": "A kutya fut.",
+  "targetLanguage": "en",
+  "learnerTranslation": "   ",
+  "referenceTranslations": ["The dog runs."]
+}
