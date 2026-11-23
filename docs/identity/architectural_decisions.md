@@ -92,8 +92,9 @@ A belső hálózatot sem tekintjük feltétel nélkül megbízhatónak. Ha a szo
 
 ## 6. Regisztrációs bemeneti szabályok
 
-- **Felhasználónév (Username):** `^[a-zA-Z0-9_]{3,30}$` (3–30 karakter, alfanumerikus és alulvonás). Biztonságos az URL-ekben, kizárja az injekciós támadásokat, és a kisbetűs B-tree indexszel gyorsan kereshető.
-- **Jelszó (Password):** Minimum 8 karakter, tetszőleges karakterkészletből. Hashelése kötelezően BCrypt-tel történik (megfelelő munka-faktorral), ami hatékony védelmet nyújt a szivárgás esetén történő szótáralapú és szivárványtáblás támadások ellen.
+- **Felhasználónév (Username):** `^[a-zA-Z0-9_-]{3,30}$` (3–30 karakter, alfanumerikus, alulvonás vagy kötőjel). Biztonságos az URL-ekben, kizárja az injekciós támadásokat, és a kisbetűs B-tree indexszel gyorsan kereshető.
+- **Jelszó (Password):** 8–128 karakter, kötelezően legalább egy számjeggyel és legalább egy speciális karakterrel (`^(?=.*[0-9])(?=.*[^a-zA-Z0-9\s]).+$`).
+  - *Mérnöki indoklás:* Standard iparági jó gyakorlat (OWASP / NIST ajánlások). Az alapvető komplexitás (számjegy és speciális karakter) kötelezővé tétele megelőzi a triviális jelszavak használatát, védelmet nyújt a szótáralapú támadások és a credential stuffing ellen. A 128 karakteres felső korlát pedig megvédi a rendszert a BCrypt algoritmusra irányuló számítási DoS támadásokkal szemben. Hashelése kötelezően BCrypt-tel történik (megfelelő munka-faktorral).
 
 ---
 
@@ -113,6 +114,9 @@ A belső hálózatot sem tekintjük feltétel nélkül megbízhatónak. Ha a szo
 | Token Claims | Minimalista autorizáció | sub (UUID), username, roles, iss, exp, jti; displayName nélkül |
 | IDOR védelem | Service-szintű autorizáció | A hitelesített azonosságot a token sub adja; az ellenőrzés a service-ek üzleti logikájának felelőssége |
 | Naplózás | Strukturált biztonsági audit | Nyers titkok nélkül, MDC correlationId, [SECURITY_ALERT] markerek |
+| DTO réteg | Teljes szétválasztás (Decoupling) | Java record-ok, Mass-Assignment és adatszivárgás megelőzése |
+| ACID garanciák | Tranzakciókezelés + Optimistic lock | Spring @Transactional, DB kényszerek, @Version lock |
+| Hibakezelés | RFC 9457 Problem Details | @RestControllerAdvice, application/problem+json, NON_NULL |
 
 ---
 
@@ -193,3 +197,60 @@ A logokba tilos érzékeny hitelesítő adatot írni:
 
 ### 10.3. Traceability (MDC)
 A Gateway által generált `X-Correlation-Id` fejlécet egy szűrő behelyezi az SLF4J MDC kontextusába (`correlationId`), így a teljes hívási lánc mikroszolgáltatásokon át összefűzhető a naplófájlokban.
+
+---
+
+## 11. DTO réteg és adatmodell-szétválasztás (Decoupling)
+
+A publikus REST API végpontok és az adatbázis JPA entitásai (`User`, `UserStats`, `RefreshToken`) között szigorú szétválasztást alkalmazunk Data Transfer Object-ek (DTO) segítségével.
+
+### 11.1. Mérnöki indoklás
+1. **Mass-Assignment (Over-Posting) elleni védelem:** Ha a kontroller közvetlenül JPA entitást fogadna a kérés törzséből, egy rosszindulatú kliens manipulálhatná azokat a belső mezőket is, amelyeket a kliens nem állíthatna be (pl. `status`, `id`, `createdAt`, `version`). A DTO-k kizárólag a kliens által legitim módon beküldhető mezőket tartalmazzák.
+2. **Érzékeny adatok szivárgásának megelőzése:** A JPA entitások olyan érzékeny belső mezőket tartalmaznak, mint a `passwordHash`. A DTO réteg (pl. `UserSummaryDto`) garantálja, hogy véletlenül se kerülhessen ki belső jelszóhash, refresh token hash vagy relációs adat a hálózatra.
+3. **API szerződés és belső séma független evolúciója:** Az adatbázis sémája normalizálható, indexelhető, particionálható vagy refaktorálható anélkül, hogy a kliensek felé nyújtott publikus OpenAPI specifikáció és HTTP szerződés megsérülne.
+4. **Immutabilitás Java Record-okkal:** Minden DTO modern Java `record` típusként valósul meg. Ez garantálja a szálbiztos megváltoztathatatlanságot (immutability), automatikusan biztosítja az accessort, konstruktort, `equals()`, `hashCode()` és `toString()` metódusokat, valamint tiszta integrációt ad a Jackson JSON szerializációval.
+
+---
+
+## 12. ACID garanciák megvalósítása a rendszerben
+
+A mikroszolgáltatás relációs adatbázis-műveleteinél a tranzakciós megbízhatóságot a következő rétegek garantálják:
+
+- **Atomicity (Atomiság):** A Spring keretrendszer `@Transactional` annotációja (AOP proxy) vezérli. Bármely kezeletlen `RuntimeException` esetén a Spring automatikusan `ROLLBACK` parancsot küld az adatbázisnak. Például a `register(...)` metódusban a `User` és a kezdeti `UserStats` létrehozása egyetlen atomi egységet alkot: ha a statisztika mentése meghiúsulna, a felhasználó rekordja sem marad perzisztálva.
+- **Consistency (Konzisztencia):** 
+  - Adatbázisszintű integritási kényszerek: Foreign key kapcsolatok (`user_id`), egyedi indexek (`email`, `username`, `idempotency_key`, `token_hash`).
+  - Alkalmazásszintű validáció: Jakarta Bean Validation (`@Valid`, `@NotBlank`, `@Email`, `@Pattern`) meggátolja, hogy érvénytelen vagy hiányos állapotú entitások mentésre kerüljenek.
+- **Isolation (Izoláció):** 
+  - Alapértelmezett `READ_COMMITTED` tranzakciós izoláció az adatbázisban, megelőzve a piszkos olvasást (dirty read).
+  - Párhuzamos módosítások védelme: A `UserStats` entitás optimista zárolással (`@Version Long version`) védett. Párhuzamos pontjóváírás esetén az ütköző tranzakció `OptimisticLockingFailureException`-nel meghiúsul ahelyett, hogy felülírná a másik folyamat pontszámát (Lost Update megelőzése).
+  - Osztályszintű `@Transactional(readOnly = true)`: Olvasási műveleteknél a Hibernate `MANUAL` flush módra vált és kihagyja az entitás-snapshotok összehasonlítását, csökkentve az erőforrás-használatot.
+- **Durability (Tartósság):** A PostgreSQL relációs motor Write-Ahead Logging (WAL) mechanizmusa és a Docker Compose perzisztens kötetei biztosítják, hogy a jóváhagyott tranzakciók rendszerösszeomlás esetén is megmaradjanak.
+
+---
+
+## 13. Bejövő kérések feldolgozási lánca (Request Processing Lifecycle)
+
+Amikor egy kliens HTTP kérést küld a REST interfészre (pl. `POST /api/v1/auth/login`), a hívás az alábbi ellenőrzési és transzformációs lépcsőkön megy keresztül:
+
+1. **Servlet Container / Ingress:** A Tomcat szálkészlete fogadja a beérkező TCP/HTTP kérést.
+2. **DispatcherServlet Routing:** A Spring központi vezérlője a HandlerMapping alapján megkeresi a cél kontroller metódust az `@RequestMapping("/api/v1/auth")` és `@PostMapping("/login")` illeszkedése szerint.
+3. **JSON Deszerializáció (`@RequestBody`):** A Spring a regisztrált `HttpMessageConverter` (Jackson) segítségével a kérés nyers JSON törzsét beolvassa és példányosítja a DTO record-ot (`LoginRequest`).
+4. **Bemeneti validáció (`@Valid`):** A Jakarta Bean Validation motor ellenőrzi a DTO-n lévő kényszereket (`@NotBlank`, `@Email`, stb.). Ha bármelyik mező hibás, a feldolgozás nem lép be a kontroller metódusába, hanem azonnal kiváltódik a `MethodArgumentNotValidException`.
+5. **Környezeti metaadatok injektálása:** A kontroller paraméterlistáján lévő `HttpServletRequest` objektumon keresztül a kontroller lekéri a biztonsági ujjlenyomathoz szükséges HTTP fejléceket (`User-Agent`) és a hálózati IP címet.
+6. **Alkalmazási szolgáltatás (`AuthService`):** A kontroller továbbadja a DTO-t az üzleti logikának, belépve a Spring `@Transactional` tranzakciós hatókörébe.
+
+---
+
+## 14. Kivételkezelési lánc (Exception Lifecycle) és RFC 9457 Problem Details
+
+A rendszer deklaratív, központosított hibakezelést használ, így a kontrollerek és szolgáltatások mentesek a redundáns `try-catch` blokkoktól:
+
+1. **Hiba fellépése:** Az üzleti logikában nem ellenőrzött kivétel váltódik ki (pl. `throw new ConflictException("Email is already registered: ...")`).
+2. **Tranzakciós visszagörgetés:** A Spring tranzakciókezelő interceptora észleli az unchecked exception-t, kiadja a DB `ROLLBACK`-et, majd továbbengedi a kivételt.
+3. **Buborékolás:** A kivétel átlép a kontrolleren és eléri a `DispatcherServlet`-et.
+4. **Globális elfogás (`@RestControllerAdvice`):** A Spring a `HandlerExceptionResolverComposite` révén meghívja a [GlobalExceptionHandler](file:///home/istvan/szoftarch_projekt/services/identity-service/src/main/java/hu/bme/szoftarch/identity/api/GlobalExceptionHandler.java) komponenst.
+5. **Megfelelő handler kiválasztása:** A Spring az annotáció alapján kiválasztja a specifikus metódust (pl. `@ExceptionHandler(ConflictException.class)`).
+6. **Biztonsági audit naplózás:** A hibakezelő lefutásakor strukturált biztonsági logbejegyzés képződik (pl. `[AUTH_FAILURE: CONFLICT]` vagy `[REQUEST_VALIDATION_FAILED]`).
+7. **RFC 9457 Problem Details generálás:** A handler összeállítja a szabványos `ProblemDetails` rekordot (`type`, `title`, `status`, `detail`, `instance`, `code`, opcionálisan `fieldErrors`).
+8. **JSON formázás (`@JsonInclude(NON_NULL)`):** A Jackson szerializáció során a `NON_NULL` beállítás biztosítja, hogy a nem releváns mezők (pl. konfliktus esetén a `fieldErrors` és a `traceId`) kimaradjanak a válaszból.
+9. **Kliens válasz:** A szerver `application/problem+json` Content-Type fejléc mellett adja vissza a szabványos hibaobjektumot.
