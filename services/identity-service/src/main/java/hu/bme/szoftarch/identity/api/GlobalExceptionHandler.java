@@ -3,6 +3,7 @@ package hu.bme.szoftarch.identity.api;
 import hu.bme.szoftarch.identity.api.dto.FieldErrorDto;
 import hu.bme.szoftarch.identity.api.dto.ProblemDetails;
 import hu.bme.szoftarch.identity.application.exception.ConflictException;
+import hu.bme.szoftarch.identity.application.exception.NotFoundException;
 import hu.bme.szoftarch.identity.application.exception.UnauthorizedException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -76,6 +77,21 @@ public class GlobalExceptionHandler {
                 "UNAUTHORIZED"
         );
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .contentType(PROBLEM_JSON)
+                .body(problem);
+    }
+
+    @ExceptionHandler(NotFoundException.class)
+    public ResponseEntity<ProblemDetails> handleNotFound(NotFoundException ex, HttpServletRequest request) {
+        ProblemDetails problem = new ProblemDetails(
+                "urn:problem:not-found",
+                "Not Found",
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                request.getRequestURI(),
+                "NOT_FOUND"
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .contentType(PROBLEM_JSON)
                 .body(problem);
     }
