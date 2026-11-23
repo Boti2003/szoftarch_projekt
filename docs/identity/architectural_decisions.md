@@ -301,3 +301,23 @@ A gamifikált ranglista megjelenítését a `GET /api/v1/leaderboard` és `GET /
 
 ### 16.3. Redundanciamentes (DRY) adatstruktúra
 - A ranglista tételeit és az egyéni pozíciót egyaránt az immutábilis [LeaderboardEntryDto](file:///home/istvan/szoftarch_projekt/services/identity-service/src/main/java/hu/bme/szoftarch/identity/api/dto/LeaderboardEntryDto.java) rekord írja le (`rank`, `userId`, `username`, `displayName`, `level`, `totalPoints`), minimalizálva az osztályok számát és megelőzve a felesleges DTO duplikációt.
+
+---
+
+## 17. API Gateway Peremvédelem és Elosztott Nyomkövetés (Phase 8)
+
+Az architektúra központi belépési pontját a Spring Cloud Gateway (WebFlux) és az Nginx TLS termináció alkotja.
+
+### 17.1. Elosztott nyomkövetés (`CorrelationIdFilter`)
+- **Kontextus:** A mikroszolgáltatás-hívási láncban (Nginx $\rightarrow$ Gateway $\rightarrow$ Identity / Learning / Social $\rightarrow$ Database) a hibakeresés és az auditálhatóság megköveteli a kérések egyértelmű azonosítását.
+- **Megvalósítás:** A [CorrelationIdFilter](file:///home/istvan/szoftarch_projekt/gateway/src/main/java/hu/bme/szoftarch/gateway/CorrelationIdFilter.java) a Spring WebFlux szűrőlánc legelején (`Ordered.HIGHEST_PRECEDENCE`) vizsgálja az `X-Correlation-Id` fejlécet.
+  - Ha a kliens küldött azonosítót, a rendszer változatlanul megőrzi és továbbadja downstream irányba.
+  - Ha hiányzik, új UUID-t generál.
+- **Kétirányú rögzítés:** A szűrő ráfűzi az azonosítót a belső szolgáltatások felé induló kérésre, valamint a `beforeCommit` hook segítségével a kliensnek visszaküldött válasz fejlécébe is bejegyzi.
+- **Hibakezelési integráció:** Hiba esetén a kliens válaszában (RFC 9457 `ProblemDetails.traceId`) megjelenő azonosító alapján a fejlesztő azonnal meg tudja keresni az érintett belső mikroszolgáltatás logjait.
+
+### 17.2. Peremszintű belső útvonal-védelem (Defense-in-Depth)
+- A mikroszolgáltatások belső végpontjai (`/internal/**`) kizárólag a Docker belső hálózatán kommunikáló más szervizek számára fenntartottak.
+- A Gateway útválasztási konfigurációja (`application.yml`) deklaratív módon kizárólag a publikus végpontokat route-olja a szolgáltatások felé:
+  - `identity`: `/api/v1/auth/**`, `/api/v1/users/**`, `/api/v1/leaderboard/**`, `/api/v1/leaderboards/**`.
+- Bármilyen `/internal/**` próbálkozás a Gateway szintjén automatikusan `404 Not Found` hibával zárul, mielőtt egyetlen belső szervizhez vagy adatbázishoz elérne.
