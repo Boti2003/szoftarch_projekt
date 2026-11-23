@@ -3,6 +3,7 @@ package hu.bme.szoftarch.identity.application;
 import hu.bme.szoftarch.identity.api.dto.AddPointsRequest;
 import hu.bme.szoftarch.identity.api.dto.PointTransactionResponse;
 import hu.bme.szoftarch.identity.api.dto.PublicProfileDto;
+import hu.bme.szoftarch.identity.application.exception.ConflictException;
 import hu.bme.szoftarch.identity.application.exception.NotFoundException;
 import hu.bme.szoftarch.identity.domain.LevelCalculator;
 import hu.bme.szoftarch.identity.domain.PointTransaction;
@@ -51,6 +52,9 @@ public class PointService {
         Optional<PointTransaction> existingTx = pointTransactionRepository.findByIdempotencyKey(request.idempotencyKey());
         if (existingTx.isPresent()) {
             PointTransaction tx = existingTx.get();
+            if (!tx.getUser().getId().equals(userId)) {
+                throw new ConflictException("Idempotency key already used for another user");
+            }
 
             log.info("Duplicate point transaction ignored: idempotencyKey={}, userId={}", request.idempotencyKey(), userId);
 

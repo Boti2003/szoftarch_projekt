@@ -11,7 +11,10 @@ import java.util.List;
 import java.util.UUID;
 
 public interface UserStatsRepository extends JpaRepository<UserStats, UUID> {
-    @Query("SELECT s FROM UserStats s JOIN FETCH s.user ORDER BY s.totalPoints DESC, s.updatedAt ASC")
+    @Query(
+            value = "SELECT s FROM UserStats s JOIN FETCH s.user ORDER BY s.totalPoints DESC, s.updatedAt ASC",
+            countQuery = "SELECT COUNT(s) FROM UserStats s"
+    )
     Page<UserStats> findLeaderboard(Pageable pageable);
 
     @Query("SELECT COUNT(s) + 1 FROM UserStats s WHERE s.totalPoints > :points")

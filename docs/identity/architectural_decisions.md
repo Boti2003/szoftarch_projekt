@@ -283,3 +283,21 @@ A más mikroszolgáltatásokból (pl. Kurzus/Feladat vagy Játék szerviz) érke
 - A többi mikroszolgáltatás számára biztosított csoportos statisztika-lekérdezés (`POST /internal/v1/users/public-stats:batch`) a `userStatsRepository.findAllWithUserByUserIds(...)` metódust használja.
 - A `JOIN FETCH s.user` biztosítja, hogy a felhasználói profilok és a játékstatisztikák egyetlen SQL lekérdezéssel jöjjenek fel, teljesen kiküszöbölve az $N+1$ lekérdezési anomáliát.
 - A válasz a már meglévő `PublicProfileDto`-t használja újra (DRY alapelv).
+
+---
+
+## 16. Globális Ranglista és Felhasználói Helyezés (Phase 7)
+
+A gamifikált ranglista megjelenítését a `GET /api/v1/leaderboard` és `GET /api/v1/leaderboard/me` végpontok szolgálják ki.
+
+### 16.1. Lekérdezési hatékonyság és N+1 anomália elkerülése
+- A `findLeaderboard(Pageable pageable)` lekérdezés a `UserStats` és `User` rekordokat `JOIN FETCH` kapcsolattal kéri le, pontszám szerint csökkenő, elért időpont szerint növekvő sorrendben (`ORDER BY s.totalPoints DESC, s.updatedAt ASC`).
+- A lapozás (pagination) sor-számlálásához dedikált `countQuery = "SELECT COUNT(s) FROM UserStats s"` van definiálva, elkerülve a felesleges join-okat a számláló lekérdezésben.
+
+### 16.2. Optimális saját helyezés (myRank) meghatározás
+- A frontend felhasználói élményhez elengedhetetlen, hogy a felhasználó akkor is lássa a saját pozícióját, ha épp az 1000. helyen áll, miközben az első oldalt (top 20) böngészi:
+  1. **In-Page egyezés:** Ha a bejelentkezett felhasználó benne van az aktuálisan lekért oldalban, a rendszer a meglévő lista alapján állítja elő a `myRank` objektumot ($0$ extra adatbázis hívás).
+  2. **Out-of-Page kalkuláció:** Ha a felhasználó nem szerepel az adott oldalon, a rendszer a `calculateRank(points)` lekérdezést hívja meg (`COUNT(s) + 1 WHERE totalPoints > :points`), amely a `total_points` B-tree index segítségével közvetlenül, milliszekundumos nagyságrendben kiszámítja a pontos rangot.
+
+### 16.3. Redundanciamentes (DRY) adatstruktúra
+- A ranglista tételeit és az egyéni pozíciót egyaránt az immutábilis [LeaderboardEntryDto](file:///home/istvan/szoftarch_projekt/services/identity-service/src/main/java/hu/bme/szoftarch/identity/api/dto/LeaderboardEntryDto.java) rekord írja le (`rank`, `userId`, `username`, `displayName`, `level`, `totalPoints`), minimalizálva az osztályok számát és megelőzve a felesleges DTO duplikációt.
