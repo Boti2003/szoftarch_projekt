@@ -110,3 +110,86 @@ A belső hálózatot sem tekintjük feltétel nélkül megbízhatónak. Ha a szo
 | Szintszámítás | Progresszív gyökös modell | Level = floor(sqrt(points / 50)) + 1, állapotmentes CPU számítás |
 | Kijelentkezés | Lebegő lejárat (5 perc) | Nincs központi állapot; elosztott blacklist skálázhatósága TODO |
 | Belső hálózat | Zero-Trust | Minden belső service maga validálja a JWT-t |
+| Token Claims | Minimalista autorizáció | sub (UUID), username, roles, iss, exp, jti; displayName nélkül |
+| IDOR védelem | Service-szintű autorizáció | A hitelesített azonosságot a token sub adja; az ellenőrzés a service-ek üzleti logikájának felelőssége |
+| Naplózás | Strukturált biztonsági audit | Nyers titkok nélkül, MDC correlationId, [SECURITY_ALERT] markerek |
+
+---
+
+## 8. JWT ClaimsSet struktúra és mezők indoklása
+
+Az Access Token a következő mezőket (claim-eket) tartalmazza:
+- `iss` (Issuer): `szoftarch-nyelvtanulo` – a kiadó hitelességének ellenőrzéséhez.
+- `sub` (Subject): A felhasználó belső UUID azonosítója (`users.id`). Ez a rendszer stabil, változhatatlan elsődleges horgonya.
+- `iat` (Issued At): A kiadás időbélyege UTC-ben.
+- `exp` (Expiration Time): A lejárati idő UTC-ben (kiadástól számított 300 másodperc).
+- `jti` (JWT ID): Véletlenszerű UUID, amely egyedivé teszi az adott tokent a nyomonkövetéshez.
+- `username`: A felhasználó login azonosítója (pl. `alice123`). Audit és logolási célokat szolgál a mikroszolgáltatásokban.
+- `roles`: A felhasználó szerepkörei (pl. `["ROLE_USER"]`). A Spring Security `GrantedAuthority` mapping-jához szükséges (`hasRole('USER')`).
+
+Tudatosan kimaradó mezők:
+- `displayName`: Nem stabil adat. Ha a felhasználó megváltoztatja a nevét, az aláírt token lejárati idejéig (akár 5 percig) elavult adatot hordozna. Ezen felül tetszőleges Unicode karaktereket és emojikat tartalmazhat, ami feleslegesen növelné az `Authorization` HTTP fejléc méretét minden kérésnél. A megjelenítési nevet a kliens a profil végpontról (`GET /api/v1/users/me`) kéri le.
+- Jelszó, email, statisztikák, pontszám: Érzékeny vagy gyakran változó adatok, amelyek nem tartoznak egy állapotmentes autorizációs tokenbe.
+
+---
+
+## 9. Token-validáció és jogosultság-ellenőrzés a mikroszolgáltatásokban
+
+A Zero-Trust elvnek megfelelően a belső mikroszolgáltatások (Learning, Social, Identity) nem bíznak meg a továbbított belső fejlécekben, hanem saját maguk végzik el a hitelesítést és a jogosultság-ellenőrzést.
+
+### 9.1. Technikai validáció a Spring Security-ben
+Minden mikroszolgáltatás beépíti a `spring-boot-starter-oauth2-resource-server` csomagot és a `jwt-public.pem` nyilvános kulcsot. A kérés megérkezésekor a Spring Security `BearerTokenAuthenticationFilter` komponense a beépített `NimbusJwtDecoder` segítségével:
+1. Ellenőrzi az RS256 aszimmetrikus digitális aláírást a publikus kulccsal.
+2. Ellenőrzi, hogy a token nem járt-e le (`exp`).
+3. Ellenőrzi a kiadót (`iss`).
+
+Ha bármelyik feltétel sérül, a kérés azonnal 401 Unauthorized hibával elutasításra kerül, és nem éri el a kontroller üzleti logikáját. Sikeres validáció esetén a Spring beállítja a `SecurityContextHolder`-t, és a kontrollerben elérhetővé teszi a `@AuthenticationPrincipal Jwt jwt` objektumot.
+
+### 9.2. Alkalmazásszintű autorizáció és IDOR felelősségi körök
+A Spring Security Resource Server réteg felelőssége a hitelesítés (Authentication): az RS256 token alapján garantálja, hogy a kérést beküldő felhasználó kicsoda (`sub`), és milyen szerepkörökkel bír (`roles`).
+
+A rendszer nem vezet be globális deklaratív kényszert, és nem módosítja a többi service meglévő OpenAPI szerződését. Ennek megfelelően az alkalmazásszintű autorizáció (IDOR – Insecure Direct Object Reference megelőzése) teljes mértékben az adott mikroszolgáltatás üzleti logikáját fejlesztő mérnök felelőssége.
+
+Ez a döntés biztosítja a szükséges rugalmasságot:
+- Nem kényszerít merev keretrendszeri megszorításokat a független service-ekre.
+- Lehetővé teszi, hogy egy későbbi adminisztrátori vagy felügyeleti fiók (pl. `hasRole('ADMIN')`) legitim módon eljárhasson más felhasználó nevében, vagy hozzáférhessen más adataihoz.
+- A fejlesztők a kontrollerben közvetlenül elérhetik a hitelesített adatokat a `@AuthenticationPrincipal Jwt jwt` paraméterrel (`UUID currentUserId = UUID.fromString(jwt.getSubject());`), és a saját üzleti szabályaik szerint vethetik össze a kérés célpontjával.
+
+### 9.3. Belső (Service-to-Service) pontjóváírás védelme
+Amikor a Learning Service a feladatmegoldás után pontot írat jóvá az Identity Service-ben (`POST /internal/v1/users/{userId}/points`), a védelem három rétegű:
+1. **Hálózati szint:** Az `/internal/v1/**` útvonalak kívülről nem érhetők el; az Nginx és a Gateway nem route-ol ide külső kérést.
+2. **Belső kulcs:** A kérésnek tartalmaznia kell az `X-Internal-Api-Key` fejlécet, amit csak a backend service-ek ismernek környezeti változóból.
+3. **Idempotencia:** A hívás kötelező paramétere egy egyedi `idempotency_key` (pl. a lecke-megoldás UUID-ja). Ha hálózati hiba miatt újrapróbálkozás történik, az Identity Service nem ad hozzá új pontot a fiókhoz, hanem a korábbi tranzakció eredményét adja vissza.
+
+---
+
+## 10. Naplózási és biztonsági audit stratégia
+
+A biztonsági incidensek gyors észleléséhez és a hatékony hibakereséshez a modul strukturált naplózási szabályokat követ.
+
+### 10.1. Naplózási szintek és események
+- **WARN (Biztonsági riasztások):** Minden olyan esemény, ami lehetséges támadásra vagy anomáliára utal.
+  - Aláíráshamisítás vagy manipulált token: `[SECURITY_ALERT: INVALID_SIGNATURE]`
+  - Replay attack detektálása (korábban rotált refresh token újbóli beküldése): `[SECURITY_ALERT: REFRESH_TOKEN_REPLAY]`
+  - User-Agent hash eltérése tokenfrissítéskor: `[SECURITY_ALERT: USER_AGENT_MISMATCH]`
+  - Sikertelen bejelentkezési kísérlet rossz jelszóval: `[AUTH_FAILURE: BAD_CREDENTIALS]`
+  - Érvénytelen kiadójú token elutasítása: `[SECURITY_ALERT: UNKNOWN_ISSUER]`
+- **INFO (Működési audit):**
+  - RSA kulcsok sikeres betöltése induláskor.
+  - Új felhasználó sikeres regisztrációja (`userId`, `username`).
+  - Sikeres bejelentkezés és munkamenet indítás.
+  - Kijelentkezés.
+- **ERROR (Rendszerhibák):**
+  - Hiányzó RSA privát kulcs token kiadásakor.
+  - Váratlan belső szerverhibák és adatbázis-elérési hibák.
+- **DEBUG (Diagnosztika):**
+  - Természetes tokenlejárat elutasítása.
+
+### 10.2. Tiltott mezők (Sensitive Data Masking)
+A logokba tilos érzékeny hitelesítő adatot írni:
+- Nyers jelszó (password): semmilyen formában nem szerepelhet logban.
+- Nyers refresh token: helyette a token belső UUID-ja vagy a SHA-256 hash első 8 karaktere naplózható.
+- Nyers access token és privát kulcs: nem naplózható.
+
+### 10.3. Traceability (MDC)
+A Gateway által generált `X-Correlation-Id` fejlécet egy szűrő behelyezi az SLF4J MDC kontextusába (`correlationId`), így a teljes hívási lánc mikroszolgáltatásokon át összefűzhető a naplófájlokban.
