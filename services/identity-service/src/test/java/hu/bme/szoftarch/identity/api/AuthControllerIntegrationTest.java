@@ -2,10 +2,14 @@ package hu.bme.szoftarch.identity.api;
 
 import hu.bme.szoftarch.identity.api.dto.LoginRequest;
 import hu.bme.szoftarch.identity.api.dto.RegisterRequest;
+import hu.bme.szoftarch.identity.domain.RefreshToken;
 import hu.bme.szoftarch.identity.domain.User;
 import hu.bme.szoftarch.identity.domain.UserStats;
+import hu.bme.szoftarch.identity.infrastructure.persistence.RefreshTokenRepository;
 import hu.bme.szoftarch.identity.infrastructure.persistence.UserRepository;
 import hu.bme.szoftarch.identity.infrastructure.persistence.UserStatsRepository;
+import hu.bme.szoftarch.identity.infrastructure.security.JwtService;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,6 +30,8 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -50,6 +56,12 @@ class AuthControllerIntegrationTest {
 
     @Autowired
     private UserStatsRepository userStatsRepository;
+
+    @Autowired
+    private RefreshTokenRepository refreshTokenRepository;
+
+    @Autowired
+    private JwtService jwtService;
 
     @BeforeEach
     void setUp() {
@@ -95,11 +107,7 @@ class AuthControllerIntegrationTest {
     @Test
     @DisplayName("Duplicate email registration returns 409 Conflict ProblemDetails")
     void testRegisterDuplicateEmail(CapturedOutput output) throws Exception {
-        RegisterRequest req1 = new RegisterRequest("dave2@example.com", "dave2", "Dave Two", "Password123!");
-        mockMvc.perform(post("/api/v1/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req1)))
-                .andExpect(status().isCreated());
+        registerUser("dave2@example.com", "dave2", "Dave Two", "Password123!");
 
         RegisterRequest reqDuplicateEmail = new RegisterRequest("dave2@example.com", "otheruser", "Other User", "Password123!");
         mockMvc.perform(post("/api/v1/auth/register")
@@ -117,11 +125,7 @@ class AuthControllerIntegrationTest {
     @Test
     @DisplayName("Duplicate username registration returns 409 Conflict ProblemDetails")
     void testRegisterDuplicateUsername() throws Exception {
-        RegisterRequest req1 = new RegisterRequest("dave3@example.com", "dave3", "Dave Three", "Password123!");
-        mockMvc.perform(post("/api/v1/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req1)))
-                .andExpect(status().isCreated());
+        registerUser("dave3@example.com", "dave3", "Dave Three", "Password123!");
 
         RegisterRequest reqDuplicateUsername = new RegisterRequest("other3@example.com", "dave3", "Other Three", "Password123!");
         mockMvc.perform(post("/api/v1/auth/register")
@@ -234,11 +238,7 @@ class AuthControllerIntegrationTest {
     @Test
     @DisplayName("Login with bad password returns 401 ProblemDetails and logs security alert")
     void testLoginBadPassword(CapturedOutput output) throws Exception {
-        RegisterRequest reg = new RegisterRequest("frank@example.com", "frank", "Frank F", "CorrectPass123!");
-        mockMvc.perform(post("/api/v1/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(reg)))
-                .andExpect(status().isCreated());
+        registerUser("frank@example.com", "frank", "Frank F", "CorrectPass123!");
 
         LoginRequest wrongPassword = new LoginRequest("frank@example.com", "WrongPassword!");
         mockMvc.perform(post("/api/v1/auth/login")
@@ -265,5 +265,229 @@ class AuthControllerIntegrationTest {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
         assertThat(output.getOut()).contains("[AUTH_FAILURE: BAD_CREDENTIALS]");
+    }
+
+    @Test
+    @DisplayName("Token refresh successfully rotates refresh token and issues new access token")
+    void testRefreshSuccess() throws Exception {
+        String userAgent = "Mozilla/5.0 (X11; Linux x86_64)";
+        registerUser("grace@example.com", "grace_user", "Grace Hopper", "ValidPass123!");
+        String rawToken1 = loginAndGetRefreshToken("grace_user", "ValidPass123!", userAgent);
+        assertThat(rawToken1).isNotNull();
+
+        // Perform token refresh
+        MvcResult refreshResult = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new Cookie("refreshToken", rawToken1))
+                        .header(HttpHeaders.USER_AGENT, userAgent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.user.username").value("grace_user"))
+                .andReturn();
+
+        String rawToken2 = extractRefreshToken(refreshResult.getResponse().getHeader(HttpHeaders.SET_COOKIE));
+        assertThat(rawToken2).isNotNull();
+        assertThat(rawToken2).isNotEqualTo(rawToken1);
+
+        // Verify DB: Old token is revoked and points to new token
+        String hash1 = jwtService.sha256(rawToken1);
+        Optional<RefreshToken> oldTokenOpt = refreshTokenRepository.findByTokenHash(hash1);
+        assertThat(oldTokenOpt).isPresent();
+        assertThat(oldTokenOpt.get().isRevoked()).isTrue();
+        assertThat(oldTokenOpt.get().getReplacedById()).isNotNull();
+
+        // Verify DB: New token is active
+        String hash2 = jwtService.sha256(rawToken2);
+        Optional<RefreshToken> newTokenOpt = refreshTokenRepository.findByTokenHash(hash2);
+        assertThat(newTokenOpt).isPresent();
+        assertThat(newTokenOpt.get().isValid()).isTrue();
+        assertThat(oldTokenOpt.get().getReplacedById()).isEqualTo(newTokenOpt.get().getId());
+    }
+
+    @Test
+    @DisplayName("Refresh without cookie returns 401 ProblemDetails")
+    void testRefreshMissingCookie() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/refresh"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "application/problem+json"))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.detail").value("Missing refresh token cookie"));
+    }
+
+    @Test
+    @DisplayName("Refresh with unknown token returns 401 ProblemDetails")
+    void testRefreshUnknownToken() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new Cookie("refreshToken", "nonexistent-token-value")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "application/problem+json"))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.detail").value("Invalid refresh token"));
+    }
+
+    @Test
+    @DisplayName("Replay attack on rotated token revokes entire token family downstream")
+    void testRefreshReplayAttackRevokesFamily(CapturedOutput output) throws Exception {
+        String userAgent = "Mozilla/5.0 ReplayAgent";
+        registerUser("replay@example.com", "replay_user", "Replay User", "ValidPass123!");
+        String rawToken1 = loginAndGetRefreshToken("replay_user", "ValidPass123!", userAgent);
+
+        // Rotate: Token1 -> Token2 -> Token3 (Token3 is active)
+        String rawToken2 = refreshAndGetToken(rawToken1, userAgent);
+        String rawToken3 = refreshAndGetToken(rawToken2, userAgent);
+
+        // Token 3 should be active right now
+        Optional<RefreshToken> token3Opt = refreshTokenRepository.findByTokenHash(jwtService.sha256(rawToken3));
+        assertThat(token3Opt).isPresent();
+        assertThat(token3Opt.get().isValid()).isTrue();
+
+        // Attacker tries to use already-rotated Token 1!
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new Cookie("refreshToken", rawToken1))
+                        .header(HttpHeaders.USER_AGENT, userAgent))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "application/problem+json"))
+                .andExpect(jsonPath("$.status").value(401));
+
+        // Verify security alert logged
+        assertThat(output.getOut()).contains("[SECURITY_ALERT: REFRESH_TOKEN_REPLAY]");
+
+        // Verify family revocation: Token 3 must now be revoked
+        Optional<RefreshToken> token3AfterAttack = refreshTokenRepository.findByTokenHash(jwtService.sha256(rawToken3));
+        assertThat(token3AfterAttack).isPresent();
+        assertThat(token3AfterAttack.get().isRevoked()).isTrue();
+
+        // Legitimate user or attacker trying to use Token 3 now fails with 401
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new Cookie("refreshToken", rawToken3))
+                        .header(HttpHeaders.USER_AGENT, userAgent))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Refresh with mismatched User-Agent is rejected with 401 and revokes token")
+    void testRefreshUserAgentMismatch(CapturedOutput output) throws Exception {
+        registerUser("uamismatch@example.com", "ua_user", "UA User", "ValidPass123!");
+        String rawToken = loginAndGetRefreshToken("ua_user", "ValidPass123!", "Legitimate-Browser/1.0");
+
+        // Attempt refresh with different User-Agent
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new Cookie("refreshToken", rawToken))
+                        .header(HttpHeaders.USER_AGENT, "Attacker-Bot/2.0"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "application/problem+json"))
+                .andExpect(jsonPath("$.detail").value("User-Agent mismatch"));
+
+        assertThat(output.getOut()).contains("[SECURITY_ALERT: USER_AGENT_MISMATCH]");
+
+        // Verify token is revoked in DB
+        Optional<RefreshToken> tokenOpt = refreshTokenRepository.findByTokenHash(jwtService.sha256(rawToken));
+        assertThat(tokenOpt).isPresent();
+        assertThat(tokenOpt.get().isRevoked()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Refresh with expired token is rejected with 401")
+    void testRefreshExpiredToken() throws Exception {
+        String userAgent = "Mozilla/5.0 Test";
+        registerUser("expired@example.com", "expired_user", "Expired User", "ValidPass123!");
+        String rawToken = loginAndGetRefreshToken("expired_user", "ValidPass123!", userAgent);
+        String tokenHash = jwtService.sha256(rawToken);
+
+        // Expire token in database
+        RefreshToken token = refreshTokenRepository.findByTokenHash(tokenHash).orElseThrow();
+        token.setExpiresAt(Instant.now().minus(2, ChronoUnit.HOURS));
+        refreshTokenRepository.save(token);
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new Cookie("refreshToken", rawToken))
+                        .header(HttpHeaders.USER_AGENT, userAgent))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value("Refresh token has expired"));
+    }
+
+    @Test
+    @DisplayName("Logout revokes refresh token and clears HttpOnly cookie with Max-Age=0")
+    void testLogoutSuccess() throws Exception {
+        registerUser("logout@example.com", "logout_user", "Logout User", "ValidPass123!");
+        String rawToken = loginAndGetRefreshToken("logout_user", "ValidPass123!", "LogoutAgent");
+
+        // Call Logout
+        MvcResult logoutResult = mockMvc.perform(post("/api/v1/auth/logout")
+                        .cookie(new Cookie("refreshToken", rawToken)))
+                .andExpect(status().isNoContent())
+                .andReturn();
+
+        String logoutCookie = logoutResult.getResponse().getHeader(HttpHeaders.SET_COOKIE);
+        assertThat(logoutCookie).isNotNull();
+        assertThat(logoutCookie).contains("Max-Age=0");
+        assertThat(logoutCookie).contains("refreshToken=");
+
+        // Verify in DB that token was revoked
+        String tokenHash = jwtService.sha256(rawToken);
+        Optional<RefreshToken> tokenOpt = refreshTokenRepository.findByTokenHash(tokenHash);
+        assertThat(tokenOpt).isPresent();
+        assertThat(tokenOpt.get().isRevoked()).isTrue();
+
+        // Refresh with logged-out token fails
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new Cookie("refreshToken", rawToken))
+                        .header(HttpHeaders.USER_AGENT, "LogoutAgent"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Logout without cookie returns 204 No Content with clearing cookie")
+    void testLogoutWithoutCookie() throws Exception {
+        MvcResult logoutResult = mockMvc.perform(post("/api/v1/auth/logout"))
+                .andExpect(status().isNoContent())
+                .andReturn();
+
+        String logoutCookie = logoutResult.getResponse().getHeader(HttpHeaders.SET_COOKIE);
+        assertThat(logoutCookie).isNotNull();
+        assertThat(logoutCookie).contains("Max-Age=0");
+    }
+
+    // --- Helper Functions for Test Readability ---
+
+    private void registerUser(String email, String username, String displayName, String password) throws Exception {
+        RegisterRequest reg = new RegisterRequest(email, username, displayName, password);
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(reg)))
+                .andExpect(status().isCreated());
+    }
+
+    private String loginAndGetRefreshToken(String identifier, String password, String userAgent) throws Exception {
+        LoginRequest login = new LoginRequest(identifier, password);
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.USER_AGENT, userAgent)
+                        .content(objectMapper.writeValueAsString(login)))
+                .andExpect(status().isOk())
+                .andReturn();
+        return extractRefreshToken(loginResult.getResponse().getHeader(HttpHeaders.SET_COOKIE));
+    }
+
+    private String refreshAndGetToken(String rawToken, String userAgent) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new Cookie("refreshToken", rawToken))
+                        .header(HttpHeaders.USER_AGENT, userAgent))
+                .andExpect(status().isOk())
+                .andReturn();
+        return extractRefreshToken(result.getResponse().getHeader(HttpHeaders.SET_COOKIE));
+    }
+
+    private String extractRefreshToken(String setCookieHeader) {
+        if (setCookieHeader == null) {
+            return null;
+        }
+        for (String part : setCookieHeader.split(";")) {
+            String trimmed = part.trim();
+            if (trimmed.startsWith("refreshToken=")) {
+                return trimmed.substring("refreshToken=".length());
+            }
+        }
+        return null;
     }
 }

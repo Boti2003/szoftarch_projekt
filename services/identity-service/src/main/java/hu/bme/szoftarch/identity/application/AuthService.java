@@ -125,6 +125,131 @@ public class AuthService {
         return new AuthSession(authResponse, cookie);
     }
 
+    /**
+     * Refreshes access token and rotates refresh token (RTR).
+     * Enforces replay detection (family revocation) and User-Agent fingerprint validation.
+     */
+    @Transactional
+    public AuthSession refresh(String rawRefreshToken, String userAgent, String ipAddress) {
+        if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
+            throw new UnauthorizedException("Missing refresh token");
+        }
+
+        String tokenHash = jwtService.sha256(rawRefreshToken);
+        RefreshToken token = refreshTokenRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> {
+                    log.warn("[AUTH_FAILURE: INVALID_REFRESH_TOKEN] Refresh token not found");
+                    return new UnauthorizedException("Invalid refresh token");
+                });
+
+        // Replay attack detection: token was already revoked or replaced
+        if (token.isRevoked() || token.isReplaced()) {
+            log.warn("[SECURITY_ALERT: REFRESH_TOKEN_REPLAY] Replay attack detected for token id: {}, user: {}",
+                    token.getId(), token.getUser().getId());
+            revokeTokenFamily(token);
+            throw new UnauthorizedException("Invalid or revoked refresh token");
+        }
+
+        // Expiration check
+        if (token.isExpired()) {
+            log.info("Refresh token expired for user: {}", token.getUser().getId());
+            throw new UnauthorizedException("Refresh token has expired");
+        }
+
+        // User-Agent validation (ADR Decision 2: strict rejection)
+        String incomingUaHash = jwtService.sha256(userAgent != null ? userAgent : "");
+        if (!incomingUaHash.equals(token.getUserAgentHash())) {
+            log.warn("[SECURITY_ALERT: USER_AGENT_MISMATCH] User-Agent mismatch for token id: {}, user: {}",
+                    token.getId(), token.getUser().getId());
+            token.setRevokedAt(Instant.now());
+            refreshTokenRepository.save(token);
+            throw new UnauthorizedException("User-Agent mismatch");
+        }
+
+        User user = token.getUser();
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            log.warn("[AUTH_FAILURE: INACTIVE_USER] Refresh attempt for inactive user: {}", user.getId());
+            throw new UnauthorizedException("User account is inactive or suspended");
+        }
+
+        // Issue new refresh token & rotate
+        String newRawRefreshToken = jwtService.generateRefreshToken();
+        String newTokenHash = jwtService.sha256(newRawRefreshToken);
+        Instant expiresAt = Instant.now().plus(jwtProperties.getRefreshTokenTtlSeconds(), ChronoUnit.SECONDS);
+
+        RefreshToken newRefreshToken = new RefreshToken(user, newTokenHash, expiresAt, incomingUaHash);
+        RefreshToken savedNewToken = refreshTokenRepository.save(newRefreshToken);
+
+        token.setRevokedAt(Instant.now());
+        token.setReplacedById(savedNewToken.getId());
+        refreshTokenRepository.save(token);
+
+        String accessToken = jwtService.generateAccessToken(user);
+        UserSummaryDto userSummary = toSummary(user);
+        AuthResponse authResponse = new AuthResponse(accessToken, jwtProperties.getAccessTokenTtlSeconds(), userSummary);
+
+        ResponseCookie cookie = ResponseCookie.from("refreshToken", newRawRefreshToken)
+                .httpOnly(true)
+                .secure(false)
+                .sameSite("Strict")
+                .path("/api/v1/auth")
+                .maxAge(jwtProperties.getRefreshTokenTtlSeconds())
+                .build();
+
+        log.info("Refresh token rotated successfully for user: {}", user.getId());
+        return new AuthSession(authResponse, cookie);
+    }
+
+    /**
+     * Traverses the replaced_by_id chain downstream and revokes all descendants to contain token theft.
+     */
+    private void revokeTokenFamily(RefreshToken token) {
+        Instant now = Instant.now();
+        if (token.getRevokedAt() == null) {
+            token.setRevokedAt(now);
+            refreshTokenRepository.save(token);
+        }
+
+        java.util.UUID nextId = token.getReplacedById();
+        while (nextId != null) {
+            RefreshToken descendant = refreshTokenRepository.findById(nextId).orElse(null);
+            if (descendant == null) {
+                break;
+            }
+            if (descendant.getRevokedAt() == null) {
+                descendant.setRevokedAt(now);
+                refreshTokenRepository.save(descendant);
+                log.info("Revoked descendant token in family: tokenId={}", descendant.getId());
+            }
+            nextId = descendant.getReplacedById();
+        }
+    }
+
+    /**
+     * Revokes the refresh token and returns a clearing cookie (Max-Age=0).
+     */
+    @Transactional
+    public ResponseCookie logout(String rawRefreshToken) {
+        if (rawRefreshToken != null && !rawRefreshToken.isBlank()) {
+            String tokenHash = jwtService.sha256(rawRefreshToken);
+            refreshTokenRepository.findByTokenHash(tokenHash).ifPresent(token -> {
+                if (token.getRevokedAt() == null) {
+                    token.setRevokedAt(Instant.now());
+                    refreshTokenRepository.save(token);
+                    log.info("Refresh token revoked on logout: tokenId={}", token.getId());
+                }
+            });
+        }
+
+        return ResponseCookie.from("refreshToken", "")
+                .httpOnly(true)
+                .secure(false)
+                .sameSite("Strict")
+                .path("/api/v1/auth")
+                .maxAge(0)
+                .build();
+    }
+
     private UserSummaryDto toSummary(User user) {
         return new UserSummaryDto(
                 user.getId(),

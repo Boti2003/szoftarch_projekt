@@ -6,11 +6,14 @@ import hu.bme.szoftarch.identity.api.dto.RegisterRequest;
 import hu.bme.szoftarch.identity.api.dto.UserSummaryDto;
 import hu.bme.szoftarch.identity.application.AuthService;
 import hu.bme.szoftarch.identity.application.dto.AuthSession;
+import hu.bme.szoftarch.identity.application.exception.UnauthorizedException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -49,5 +52,36 @@ public class AuthController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, session.refreshCookie().toString())
                 .body(session.authResponse());
+    }
+
+    /**
+     * Token refresh endpoint. Rotates refresh token and issues a new access token.
+     */
+    @PostMapping("/refresh")
+    public ResponseEntity<AuthResponse> refresh(
+            @CookieValue(name = "refreshToken", required = false) String rawRefreshToken,
+            HttpServletRequest httpRequest) {
+        if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
+            throw new UnauthorizedException("Missing refresh token cookie");
+        }
+        String userAgent = httpRequest.getHeader(HttpHeaders.USER_AGENT);
+        String ipAddress = httpRequest.getRemoteAddr();
+        AuthSession session = authService.refresh(rawRefreshToken, userAgent, ipAddress);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, session.refreshCookie().toString())
+                .body(session.authResponse());
+    }
+
+    /**
+     * Logout endpoint. Revokes the refresh token and clears the HttpOnly cookie.
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(
+            @CookieValue(name = "refreshToken", required = false) String rawRefreshToken) {
+        ResponseCookie cookie = authService.logout(rawRefreshToken);
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .build();
     }
 }
