@@ -9,3 +9,11 @@ spring:
       ddl-auto: none
   flyway:
     enabled: false
+
+learning:
+  security:
+    jwt:
+      issuer: szoftarch-nyelvtanulo
+      public-key: classpath:keys/jwt-public-test.pub
+    internal:
+      api-key: test-internal-api-key-at-least-32-bytes-value
