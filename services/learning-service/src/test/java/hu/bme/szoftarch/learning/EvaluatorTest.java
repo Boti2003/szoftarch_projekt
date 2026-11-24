@@ -172,6 +172,20 @@ class EvaluatorTest {
             assertThat(result.scoreRatio()).isEqualByComparingTo(ZERO);
             assertThat(result.feedback()).doesNotContain("r1").doesNotContain("l1");
         }
+
+        @Test
+        void allCorrectPairsPlusBogusPairIsNotCorrect() {
+            // Minden elvárt pár helyes, de egy fölös (túljelölt) pár is érkezik:
+            // a teljes-párosítás szabály miatt correct=false, az arány < 1.0.
+            EvaluationResult result = evaluator.evaluate(solution, new MatchingAnswer(List.of(
+                    new MatchingAnswer.Pair("l1", "r1"),
+                    new MatchingAnswer.Pair("l2", "r2"),
+                    new MatchingAnswer.Pair("l3", "r3"),
+                    new MatchingAnswer.Pair("l4", "r4"),
+                    new MatchingAnswer.Pair("lX", "rX"))));
+            assertThat(result.correct()).isFalse();
+            assertThat(result.scoreRatio()).isLessThan(ONE);
+        }
     }
 
     @Nested
