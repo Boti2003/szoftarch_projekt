@@ -1,6 +1,7 @@
 package hu.bme.szoftarch.identity.application;
 
 import hu.bme.szoftarch.identity.api.dto.AuthResponse;
+import hu.bme.szoftarch.identity.api.dto.ChangePasswordRequest;
 import hu.bme.szoftarch.identity.api.dto.LoginRequest;
 import hu.bme.szoftarch.identity.api.dto.RegisterRequest;
 import hu.bme.szoftarch.identity.api.dto.UserSummaryDto;
@@ -101,6 +102,40 @@ public class AuthService {
             throw new UnauthorizedException("User account is inactive or suspended");
         }
 
+        log.info("User logged in successfully: userId={}, username={}", user.getId(), user.getUsername());
+        return createSession(user, userAgent);
+    }
+
+    /**
+     * Changes password for an authenticated user.
+     * Verifies current password, prevents reuse, updates hash, revokes all refresh tokens globally,
+     * and returns a fresh session for the current client.
+     */
+    @Transactional
+    public AuthSession changePassword(UUID userId, ChangePasswordRequest request, String userAgent) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UnauthorizedException("User not found"));
+
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            log.warn("[AUTH_FAILURE: BAD_CREDENTIALS] Password change failed for userId: {}", userId);
+            throw new UnauthorizedException("Current password is incorrect");
+        }
+
+        if (passwordEncoder.matches(request.newPassword(), user.getPasswordHash())) {
+            throw new ConflictException("New password cannot be identical to the current password");
+        }
+
+        // saveAndFlush ensures the new password hash is persisted to the database before bulk token revocation
+        user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        User savedUser = userRepository.saveAndFlush(user);
+
+        // Revoke all existing refresh tokens across all families (devices)
+        refreshTokenRepository.revokeAllForUser(userId, Instant.now());
+        log.info("Password changed and all refresh tokens revoked for userId: {}", userId);
+
+        return createSession(savedUser, userAgent);
+    }
+    private AuthSession createSession(User user, String userAgent) {
         String accessToken = jwtService.generateAccessToken(user);
         String rawRefreshToken = jwtService.generateRefreshToken();
         String tokenHash = jwtService.sha256(rawRefreshToken);
@@ -113,8 +148,6 @@ public class AuthService {
         UserSummaryDto userSummary = toSummary(user);
         AuthResponse authResponse = new AuthResponse(accessToken, jwtProperties.getAccessTokenTtlSeconds(), userSummary);
         ResponseCookie cookie = buildRefreshCookie(rawRefreshToken, jwtProperties.getRefreshTokenTtlSeconds());
-
-        log.info("User logged in successfully: userId={}, username={}", user.getId(), user.getUsername());
 
         return new AuthSession(authResponse, cookie);
     }

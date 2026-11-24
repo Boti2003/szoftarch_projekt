@@ -60,6 +60,27 @@ export const handlers = [
     new HttpResponse(null, { status: 204 }),
   ),
 
+  http.post('/api/v1/auth/change-password', async ({ request }) => {
+    const body = (await request.json()) as { currentPassword?: string; newPassword?: string };
+    if (body.currentPassword === 'wrongpassword') {
+      return HttpResponse.json(
+        { title: 'Unauthorized', status: 401, detail: 'Current password is incorrect' },
+        { status: 401, headers: { 'Content-Type': 'application/problem+json' } },
+      );
+    }
+    return HttpResponse.json({
+      accessToken: 'new-mock-access-token',
+      tokenType: 'Bearer',
+      expiresInSeconds: 300,
+      user: {
+        id: mockUser.id,
+        email: mockUser.email,
+        username: mockUser.username,
+        displayName: mockUser.displayName,
+      },
+    });
+  }),
+
   http.get('/api/v1/users/me', () =>
     HttpResponse.json(mockUser),
   ),

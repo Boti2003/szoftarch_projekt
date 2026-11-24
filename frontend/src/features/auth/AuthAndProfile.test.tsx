@@ -54,6 +54,7 @@ test('ProfilePage megjeleníti a pontszámot, szintet és a mentés gombot', asy
   expect(await screen.findByText('Szint 2')).toBeInTheDocument();
   expect(await screen.findByText(/150 \/ 200 XP/i)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Mentés' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Jelszó módosítása' })).toBeInTheDocument();
 });
 
 test('apiFetch meghívja az onUnauthorized visszahívást lejárt refresh token esetén', async () => {

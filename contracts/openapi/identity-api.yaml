@@ -49,6 +49,15 @@ paths:
       summary: Refresh token visszavonása
       responses:
         '204': { description: Kijelentkezve }
+  /auth/change-password:
+    post:
+      tags: [auth]
+      summary: Jelszó módosítása (aktuális jelszó ellenőrzéssel és globális session invalidációval)
+      responses:
+        '200': { description: Jelszó sikeresen módosítva, új session kiadva }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
   /users/me:
     get:
       tags: [users]

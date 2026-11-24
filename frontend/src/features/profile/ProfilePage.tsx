@@ -1,13 +1,18 @@
 import { useState, FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Chip, Divider, LinearProgress, TextField, Typography } from '@mui/material';
 import { useAuth } from '../auth/AuthContext';
-import { apiFetch, UserProfile } from '../../api/client';
+import { apiFetch, AuthResponse, setAccessToken, UserProfile } from '../../api/client';
 
 export function ProfilePage() {
   const { user, refreshProfile } = useAuth();
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [message, setMessage] = useState<{ text: string; severity: 'success' | 'error' } | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordMessage, setPasswordMessage] = useState<{ text: string; severity: 'success' | 'error' } | null>(null);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   if (!user) return null;
 
@@ -33,6 +38,28 @@ export function ProfilePage() {
       setMessage({ text: err instanceof Error ? err.message : 'Hiba a mentés során', severity: 'error' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleChangePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    setPasswordMessage(null);
+    setChangingPassword(true);
+    try {
+      const res = await apiFetch<AuthResponse>('/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      if (res?.accessToken) {
+        setAccessToken(res.accessToken);
+      }
+      setCurrentPassword('');
+      setNewPassword('');
+      setPasswordMessage({ text: 'Jelszó sikeresen módosítva!', severity: 'success' });
+    } catch (err: unknown) {
+      setPasswordMessage({ text: err instanceof Error ? err.message : 'Hiba a jelszó módosítása során', severity: 'error' });
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -77,6 +104,34 @@ export function ProfilePage() {
             />
             <Button type="submit" variant="contained" disabled={saving}>
               {saving ? 'Mentés...' : 'Mentés'}
+            </Button>
+          </Box>
+
+          <Divider sx={{ my: 3 }} />
+
+          {passwordMessage && <Alert severity={passwordMessage.severity} sx={{ mb: 2 }}>{passwordMessage.text}</Alert>}
+
+          <Typography variant="subtitle1" fontWeight="bold" gutterBottom>Jelszó módosítása</Typography>
+          <Box component="form" onSubmit={handleChangePassword} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              label="Jelenlegi jelszó"
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              size="small"
+              required
+            />
+            <TextField
+              label="Új jelszó"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              size="small"
+              required
+              helperText="Legalább 8 karakter, 1 szám és 1 speciális karakter"
+            />
+            <Button type="submit" variant="outlined" color="primary" disabled={changingPassword} sx={{ alignSelf: 'flex-start' }}>
+              {changingPassword ? 'Módosítás...' : 'Jelszó módosítása'}
             </Button>
           </Box>
         </CardContent>

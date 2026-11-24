@@ -1,5 +1,6 @@
 package hu.bme.szoftarch.identity.api;
 
+import hu.bme.szoftarch.identity.api.dto.ChangePasswordRequest;
 import hu.bme.szoftarch.identity.api.dto.LoginRequest;
 import hu.bme.szoftarch.identity.api.dto.RegisterRequest;
 import hu.bme.szoftarch.identity.domain.RefreshToken;
@@ -62,6 +63,9 @@ class AuthControllerIntegrationTest {
 
     @Autowired
     private JwtService jwtService;
+
+    @Autowired
+    private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
     @BeforeEach
     void setUp() {
@@ -446,6 +450,115 @@ class AuthControllerIntegrationTest {
         String logoutCookie = logoutResult.getResponse().getHeader(HttpHeaders.SET_COOKIE);
         assertThat(logoutCookie).isNotNull();
         assertThat(logoutCookie).contains("Max-Age=0");
+    }
+
+    @Test
+    @DisplayName("Change password successfully updates password and revokes old refresh tokens")
+    void testChangePasswordSuccess() throws Exception {
+        registerUser("pwd@example.com", "pwduser", "Pwd User", "OldPass123!");
+
+        // Login to get access token and refresh token
+        LoginRequest login = new LoginRequest("pwduser", "OldPass123!");
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(login)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode loginJson = objectMapper.readTree(loginResult.getResponse().getContentAsString());
+        String accessToken = loginJson.get("accessToken").asString();
+        String oldRefreshToken = extractRefreshToken(loginResult.getResponse().getHeader(HttpHeaders.SET_COOKIE));
+
+        // Change password
+        ChangePasswordRequest changeReq = new ChangePasswordRequest("OldPass123!", "NewPass456!");
+        MvcResult changeResult = mockMvc.perform(post("/api/v1/auth/change-password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(changeReq)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(header().exists(HttpHeaders.SET_COOKIE))
+                .andReturn();
+
+        // Old password no longer works
+        LoginRequest oldLogin = new LoginRequest("pwduser", "OldPass123!");
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(oldLogin)))
+                .andExpect(status().isUnauthorized());
+
+        // New password works
+        LoginRequest newLogin = new LoginRequest("pwduser", "NewPass456!");
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(newLogin)))
+                .andExpect(status().isOk());
+
+        // Old refresh token was revoked by revokeAllForUser
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new Cookie("refreshToken", oldRefreshToken)))
+                .andExpect(status().isUnauthorized());
+
+        // Verify in DB directly that password hash was updated
+        User dbUser = userRepository.findByUsername("pwduser").orElseThrow();
+        assertThat(passwordEncoder.matches("NewPass456!", dbUser.getPasswordHash())).isTrue();
+        assertThat(passwordEncoder.matches("OldPass123!", dbUser.getPasswordHash())).isFalse();
+    }
+
+    @Test
+    @DisplayName("Change password fails with 401 when current password is wrong")
+    void testChangePasswordWrongCurrent() throws Exception {
+        registerUser("wrongpwd@example.com", "wrongpwd", "Wrong Pwd", "OldPass123!");
+
+        LoginRequest login = new LoginRequest("wrongpwd", "OldPass123!");
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(login)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String accessToken = objectMapper.readTree(loginResult.getResponse().getContentAsString()).get("accessToken").asString();
+
+        ChangePasswordRequest changeReq = new ChangePasswordRequest("IncorrectPass!", "NewPass456!");
+        mockMvc.perform(post("/api/v1/auth/change-password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(changeReq)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    @DisplayName("Change password fails with 409 when new password is identical to old")
+    void testChangePasswordIdentical() throws Exception {
+        registerUser("samepwd@example.com", "samepwd", "Same Pwd", "OldPass123!");
+
+        LoginRequest login = new LoginRequest("samepwd", "OldPass123!");
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(login)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String accessToken = objectMapper.readTree(loginResult.getResponse().getContentAsString()).get("accessToken").asString();
+
+        ChangePasswordRequest changeReq = new ChangePasswordRequest("OldPass123!", "OldPass123!");
+        mockMvc.perform(post("/api/v1/auth/change-password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(changeReq)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+    }
+
+    @Test
+    @DisplayName("Change password unauthenticated returns 401")
+    void testChangePasswordUnauthenticated() throws Exception {
+        ChangePasswordRequest changeReq = new ChangePasswordRequest("OldPass123!", "NewPass456!");
+        mockMvc.perform(post("/api/v1/auth/change-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(changeReq)))
+                .andExpect(status().isUnauthorized());
     }
 
     // --- Helper Functions for Test Readability ---
