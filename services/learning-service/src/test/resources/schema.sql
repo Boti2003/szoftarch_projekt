@@ -38,3 +38,22 @@ CREATE TABLE IF NOT EXISTS lesson_progress (
     version          BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, lesson_id)
 );
+
+-- U2: exercises. A payload/solution JSONB-t a JPA konverter stringként kezeli,
+-- ezért a teszt-sémában szöveges oszlop (H2 nem támogatja a natív jsonb típust).
+CREATE TABLE IF NOT EXISTS exercises (
+    id                      UUID PRIMARY KEY,
+    lesson_id               UUID NOT NULL REFERENCES lessons (id),
+    type                    VARCHAR(30) NOT NULL,
+    difficulty              VARCHAR(10) NOT NULL,
+    order_index             INT NOT NULL,
+    prompt                  TEXT NOT NULL,
+    payload                 TEXT NOT NULL,
+    solution                TEXT,
+    max_points              INT NOT NULL,
+    required_for_completion BOOLEAN NOT NULL DEFAULT TRUE,
+    duel_eligible           BOOLEAN NOT NULL DEFAULT FALSE,
+    enabled                 BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at              TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    UNIQUE (lesson_id, order_index)
+);

@@ -3,6 +3,8 @@ package hu.bme.szoftarch.learning.api;
 import java.net.URI;
 import java.util.List;
 
+import hu.bme.szoftarch.learning.domain.exercise.ExerciseContentException;
+
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -45,6 +47,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ProblemDetail> handleConflict(ConflictException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), ex.getCode(), request, null);
+    }
+
+    @ExceptionHandler(ExerciseContentException.class)
+    public ResponseEntity<ProblemDetail> handleExerciseContent(ExerciseContentException ex,
+            HttpServletRequest request) {
+        // Szerveroldali adatintegritási hiba (hibás tárolt payload/solution):
+        // a kliens egyértelmű problem+json-t kap, nem nyers stacktrace-t.
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "Exercise Content Error",
+                "The exercise content could not be processed", "exercise_content_invalid",
+                request, null);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
