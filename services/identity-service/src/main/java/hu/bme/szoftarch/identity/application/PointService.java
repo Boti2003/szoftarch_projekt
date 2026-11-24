@@ -61,16 +61,7 @@ public class PointService {
             UserStats stats = userStatsRepository.findById(userId)
                     .orElseThrow(() -> new NotFoundException("User stats not found for user: " + userId));
 
-            return new PointTransactionResponse(
-                    tx.getId(),
-                    userId,
-                    tx.getPoints(),
-                    stats.getTotalPoints(),
-                    stats.getLevel(),
-                    LevelCalculator.calculateNextLevelPoints(stats.getLevel()),
-                    true,
-                    tx.getOccurredAt()
-            );
+            return toResponse(tx, userId, stats.getTotalPoints(), stats.getLevel(), true);
         }
 
         // 2. Fetch user
@@ -105,16 +96,7 @@ public class PointService {
         log.info("Points added successfully: userId={}, pointsAdded={}, newTotal={}, newLevel={}, idempotencyKey={}",
                 userId, request.points(), newTotal, newLevel, request.idempotencyKey());
 
-        return new PointTransactionResponse(
-                savedTx.getId(),
-                userId,
-                savedTx.getPoints(),
-                newTotal,
-                newLevel,
-                LevelCalculator.calculateNextLevelPoints(newLevel),
-                false,
-                savedTx.getOccurredAt()
-        );
+        return toResponse(savedTx, userId, newTotal, newLevel, false);
     }
 
     /**
@@ -138,5 +120,18 @@ public class PointService {
                         stats.getTotalPoints()
                 ))
                 .toList();
+    }
+
+    private PointTransactionResponse toResponse(PointTransaction tx, UUID userId, long totalPoints, int level, boolean duplicate) {
+        return new PointTransactionResponse(
+                tx.getId(),
+                userId,
+                tx.getPoints(),
+                totalPoints,
+                level,
+                LevelCalculator.calculateNextLevelPoints(level),
+                duplicate,
+                tx.getOccurredAt()
+        );
     }
 }

@@ -46,8 +46,7 @@ public class AuthController {
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest) {
         String userAgent = httpRequest.getHeader(HttpHeaders.USER_AGENT);
-        String ipAddress = httpRequest.getRemoteAddr();
-        AuthSession session = authService.login(request, userAgent, ipAddress);
+        AuthSession session = authService.login(request, userAgent);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, session.refreshCookie().toString())
@@ -65,8 +64,7 @@ public class AuthController {
             throw new UnauthorizedException("Missing refresh token cookie");
         }
         String userAgent = httpRequest.getHeader(HttpHeaders.USER_AGENT);
-        String ipAddress = httpRequest.getRemoteAddr();
-        AuthSession session = authService.refresh(rawRefreshToken, userAgent, ipAddress);
+        AuthSession session = authService.refresh(rawRefreshToken, userAgent);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, session.refreshCookie().toString())

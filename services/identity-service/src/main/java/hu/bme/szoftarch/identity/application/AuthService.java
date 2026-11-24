@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 
 @Service
 @Transactional(readOnly = true)
@@ -81,7 +82,7 @@ public class AuthService {
      * Authenticates a user by email or username and issues an access token and refresh token.
      */
     @Transactional
-    public AuthSession login(LoginRequest request, String userAgent, String ipAddress) {
+    public AuthSession login(LoginRequest request, String userAgent) {
         String identifier = request.loginIdentifier().trim().toLowerCase();
 
         User user = userRepository.findByEmailOrUsername(identifier, identifier)
@@ -111,14 +112,7 @@ public class AuthService {
 
         UserSummaryDto userSummary = toSummary(user);
         AuthResponse authResponse = new AuthResponse(accessToken, jwtProperties.getAccessTokenTtlSeconds(), userSummary);
-
-        ResponseCookie cookie = ResponseCookie.from("refreshToken", rawRefreshToken)
-                .httpOnly(true)
-                .secure(false)
-                .sameSite("Strict")
-                .path("/api/v1/auth")
-                .maxAge(jwtProperties.getRefreshTokenTtlSeconds())
-                .build();
+        ResponseCookie cookie = buildRefreshCookie(rawRefreshToken, jwtProperties.getRefreshTokenTtlSeconds());
 
         log.info("User logged in successfully: userId={}, username={}", user.getId(), user.getUsername());
 
@@ -130,7 +124,7 @@ public class AuthService {
      * Enforces replay detection (family revocation) and User-Agent fingerprint validation.
      */
     @Transactional
-    public AuthSession refresh(String rawRefreshToken, String userAgent, String ipAddress) {
+    public AuthSession refresh(String rawRefreshToken, String userAgent) {
         if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
             throw new UnauthorizedException("Missing refresh token");
         }
@@ -187,14 +181,7 @@ public class AuthService {
         String accessToken = jwtService.generateAccessToken(user);
         UserSummaryDto userSummary = toSummary(user);
         AuthResponse authResponse = new AuthResponse(accessToken, jwtProperties.getAccessTokenTtlSeconds(), userSummary);
-
-        ResponseCookie cookie = ResponseCookie.from("refreshToken", newRawRefreshToken)
-                .httpOnly(true)
-                .secure(false)
-                .sameSite("Strict")
-                .path("/api/v1/auth")
-                .maxAge(jwtProperties.getRefreshTokenTtlSeconds())
-                .build();
+        ResponseCookie cookie = buildRefreshCookie(newRawRefreshToken, jwtProperties.getRefreshTokenTtlSeconds());
 
         log.info("Refresh token rotated successfully for user: {}", user.getId());
         return new AuthSession(authResponse, cookie);
@@ -210,7 +197,7 @@ public class AuthService {
             refreshTokenRepository.save(token);
         }
 
-        java.util.UUID nextId = token.getReplacedById();
+        UUID nextId = token.getReplacedById();
         while (nextId != null) {
             RefreshToken descendant = refreshTokenRepository.findById(nextId).orElse(null);
             if (descendant == null) {
@@ -241,12 +228,16 @@ public class AuthService {
             });
         }
 
-        return ResponseCookie.from("refreshToken", "")
+        return buildRefreshCookie("", 0);
+    }
+
+    private ResponseCookie buildRefreshCookie(String tokenValue, long maxAge) {
+        return ResponseCookie.from("refreshToken", tokenValue)
                 .httpOnly(true)
                 .secure(false)
                 .sameSite("Strict")
                 .path("/api/v1/auth")
-                .maxAge(0)
+                .maxAge(maxAge)
                 .build();
     }
 

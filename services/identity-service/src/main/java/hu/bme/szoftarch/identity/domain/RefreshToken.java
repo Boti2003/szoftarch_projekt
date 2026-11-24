@@ -39,12 +39,7 @@ public class RefreshToken {
     }
 
     public RefreshToken(User user, String tokenHash, Instant expiresAt, String userAgentHash) {
-        this.id = UUID.randomUUID();
-        this.user = user;
-        this.tokenHash = tokenHash;
-        this.expiresAt = expiresAt;
-        this.userAgentHash = userAgentHash;
-        this.createdAt = Instant.now();
+        this(UUID.randomUUID(), user, tokenHash, expiresAt, userAgentHash);
     }
 
     public RefreshToken(UUID id, User user, String tokenHash, Instant expiresAt, String userAgentHash) {

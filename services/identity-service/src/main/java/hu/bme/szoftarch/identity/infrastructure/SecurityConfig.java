@@ -4,6 +4,8 @@ import hu.bme.szoftarch.identity.api.dto.ProblemDetails;
 import hu.bme.szoftarch.identity.infrastructure.security.InternalApiKeyFilter;
 import hu.bme.szoftarch.identity.infrastructure.security.JwtProperties;
 import hu.bme.szoftarch.identity.infrastructure.security.RsaKeyLoader;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,6 +25,7 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.security.interfaces.RSAPublicKey;
 
@@ -72,34 +75,40 @@ public class SecurityConfig {
     }
 
     private AuthenticationEntryPoint problemDetailsAuthenticationEntryPoint() {
-        return (request, response, authException) -> {
-            response.setStatus(HttpStatus.UNAUTHORIZED.value());
-            response.setContentType("application/problem+json");
-            ProblemDetails problem = new ProblemDetails(
-                    "urn:problem:unauthorized",
-                    "Unauthorized",
-                    HttpStatus.UNAUTHORIZED.value(),
-                    authException.getMessage() != null ? authException.getMessage() : "Full authentication is required to access this resource",
-                    request.getRequestURI(),
-                    "UNAUTHORIZED"
-            );
-            response.getWriter().write(objectMapper.writeValueAsString(problem));
-        };
+        return (request, response, authException) -> writeProblem(
+                response, request, HttpStatus.UNAUTHORIZED, "unauthorized", "Unauthorized", "UNAUTHORIZED",
+                "Full authentication is required to access this resource", authException
+        );
     }
 
     private AccessDeniedHandler problemDetailsAccessDeniedHandler() {
-        return (request, response, accessDeniedException) -> {
-            response.setStatus(HttpStatus.FORBIDDEN.value());
-            response.setContentType("application/problem+json");
-            ProblemDetails problem = new ProblemDetails(
-                    "urn:problem:forbidden",
-                    "Forbidden",
-                    HttpStatus.FORBIDDEN.value(),
-                    accessDeniedException.getMessage() != null ? accessDeniedException.getMessage() : "Access is denied",
-                    request.getRequestURI(),
-                    "FORBIDDEN"
-            );
-            response.getWriter().write(objectMapper.writeValueAsString(problem));
-        };
+        return (request, response, accessDeniedException) -> writeProblem(
+                response, request, HttpStatus.FORBIDDEN, "forbidden", "Forbidden", "FORBIDDEN",
+                "Access is denied", accessDeniedException
+        );
+    }
+
+    private void writeProblem(
+            HttpServletResponse response,
+            HttpServletRequest request,
+            HttpStatus status,
+            String typeSuffix,
+            String title,
+            String code,
+            String defaultDetail,
+            Exception ex
+    ) throws IOException {
+        response.setStatus(status.value());
+        response.setContentType("application/problem+json");
+        String detail = (ex != null && ex.getMessage() != null) ? ex.getMessage() : defaultDetail;
+        ProblemDetails problem = new ProblemDetails(
+                "urn:problem:" + typeSuffix,
+                title,
+                status.value(),
+                detail,
+                request.getRequestURI(),
+                code
+        );
+        response.getWriter().write(objectMapper.writeValueAsString(problem));
     }
 }

@@ -42,14 +42,7 @@ public class User {
     }
 
     public User(String email, String username, String displayName, String passwordHash) {
-        this.id = UUID.randomUUID();
-        this.email = email;
-        this.username = username;
-        this.displayName = displayName;
-        this.passwordHash = passwordHash;
-        this.status = UserStatus.ACTIVE;
-        this.createdAt = Instant.now();
-        this.updatedAt = Instant.now();
+        this(UUID.randomUUID(), email, username, displayName, passwordHash);
     }
 
     public User(UUID id, String email, String username, String displayName, String passwordHash) {

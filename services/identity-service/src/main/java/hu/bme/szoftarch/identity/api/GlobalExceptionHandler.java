@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -32,7 +33,7 @@ public class GlobalExceptionHandler {
 
         String details = fieldErrors.stream()
                 .map(fe -> fe.field() + ": " + fe.message())
-                .collect(java.util.stream.Collectors.joining("; "));
+                .collect(Collectors.joining("; "));
 
         log.warn("[REQUEST_VALIDATION_FAILED] Validation failed on {}: {} field errors: [{}]",
                 request.getRequestURI(), fieldErrors.size(), details);
@@ -56,78 +57,42 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ProblemDetails> handleConflict(ConflictException ex, HttpServletRequest request) {
         log.warn("[AUTH_FAILURE: CONFLICT] Registration conflict on {}: {}", request.getRequestURI(), ex.getMessage());
-
-        ProblemDetails problem = new ProblemDetails(
-                "urn:problem:conflict",
-                "Conflict",
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                request.getRequestURI(),
-                "CONFLICT"
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .contentType(PROBLEM_JSON)
-                .body(problem);
+        return problem(HttpStatus.CONFLICT, "conflict", "Conflict", ex.getMessage(), request.getRequestURI(), "CONFLICT");
     }
 
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ProblemDetails> handleUnauthorized(UnauthorizedException ex, HttpServletRequest request) {
-        ProblemDetails problem = new ProblemDetails(
-                "urn:problem:unauthorized",
-                "Unauthorized",
-                HttpStatus.UNAUTHORIZED.value(),
-                ex.getMessage(),
-                request.getRequestURI(),
-                "UNAUTHORIZED"
-        );
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .contentType(PROBLEM_JSON)
-                .body(problem);
+        return problem(HttpStatus.UNAUTHORIZED, "unauthorized", "Unauthorized", ex.getMessage(), request.getRequestURI(), "UNAUTHORIZED");
     }
 
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<ProblemDetails> handleNotFound(NotFoundException ex, HttpServletRequest request) {
-        ProblemDetails problem = new ProblemDetails(
-                "urn:problem:not-found",
-                "Not Found",
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                request.getRequestURI(),
-                "NOT_FOUND"
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .contentType(PROBLEM_JSON)
-                .body(problem);
+        return problem(HttpStatus.NOT_FOUND, "not-found", "Not Found", ex.getMessage(), request.getRequestURI(), "NOT_FOUND");
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ProblemDetails> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest request) {
-        ProblemDetails problem = new ProblemDetails(
-                "urn:problem:bad-request",
-                "Bad Request",
-                HttpStatus.BAD_REQUEST.value(),
-                ex.getMessage(),
-                request.getRequestURI(),
-                "BAD_REQUEST"
-        );
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .contentType(PROBLEM_JSON)
-                .body(problem);
+        return problem(HttpStatus.BAD_REQUEST, "bad-request", "Bad Request", ex.getMessage(), request.getRequestURI(), "BAD_REQUEST");
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetails> handleGenericException(Exception ex, HttpServletRequest request) {
         log.error("Unhandled server error processing request to {}: {}", request.getRequestURI(), ex.getMessage(), ex);
+        return problem(HttpStatus.INTERNAL_SERVER_ERROR, "internal-error", "Internal Server Error",
+                "An unexpected internal error occurred", request.getRequestURI(), "INTERNAL_ERROR");
+    }
 
+    private ResponseEntity<ProblemDetails> problem(HttpStatus status, String typeSuffix, String title,
+                                                   String detail, String uri, String code) {
         ProblemDetails problem = new ProblemDetails(
-                "urn:problem:internal-error",
-                "Internal Server Error",
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "An unexpected internal error occurred",
-                request.getRequestURI(),
-                "INTERNAL_ERROR"
+                "urn:problem:" + typeSuffix,
+                title,
+                status.value(),
+                detail,
+                uri,
+                code
         );
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+        return ResponseEntity.status(status)
                 .contentType(PROBLEM_JSON)
                 .body(problem);
     }

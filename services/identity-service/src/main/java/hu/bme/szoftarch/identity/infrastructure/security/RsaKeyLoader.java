@@ -29,23 +29,23 @@ public final class RsaKeyLoader {
     }
 
     public static RSAPrivateKey parsePrivateKey(String pem) throws Exception {
-        String clean = pem
-                .replace("-----BEGIN PRIVATE KEY-----", "")
-                .replace("-----END PRIVATE KEY-----", "")
-                .replaceAll("\\s+", "");
-        byte[] decoded = Base64.getDecoder().decode(clean);
+        byte[] decoded = decodePem(pem, "PRIVATE KEY");
         PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(decoded);
         return (RSAPrivateKey) KeyFactory.getInstance("RSA").generatePrivate(keySpec);
     }
 
     public static RSAPublicKey parsePublicKey(String pem) throws Exception {
-        String clean = pem
-                .replace("-----BEGIN PUBLIC KEY-----", "")
-                .replace("-----END PUBLIC KEY-----", "")
-                .replaceAll("\\s+", "");
-        byte[] decoded = Base64.getDecoder().decode(clean);
+        byte[] decoded = decodePem(pem, "PUBLIC KEY");
         X509EncodedKeySpec keySpec = new X509EncodedKeySpec(decoded);
         return (RSAPublicKey) KeyFactory.getInstance("RSA").generatePublic(keySpec);
+    }
+
+    private static byte[] decodePem(String pem, String keyType) {
+        String clean = pem
+                .replace("-----BEGIN " + keyType + "-----", "")
+                .replace("-----END " + keyType + "-----", "")
+                .replaceAll("\\s+", "");
+        return Base64.getDecoder().decode(clean);
     }
 
     /**
