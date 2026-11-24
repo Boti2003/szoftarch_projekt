@@ -30,14 +30,18 @@ public class GlobalExceptionHandler {
                 .map(fe -> new FieldErrorDto(fe.getField(), fe.getDefaultMessage()))
                 .toList();
 
-        log.warn("[REQUEST_VALIDATION_FAILED] Validation failed on {}: {} field errors",
-                request.getRequestURI(), fieldErrors.size());
+        String details = fieldErrors.stream()
+                .map(fe -> fe.field() + ": " + fe.message())
+                .collect(java.util.stream.Collectors.joining("; "));
+
+        log.warn("[REQUEST_VALIDATION_FAILED] Validation failed on {}: {} field errors: [{}]",
+                request.getRequestURI(), fieldErrors.size(), details);
 
         ProblemDetails problem = new ProblemDetails(
                 "urn:problem:validation-error",
                 "Bad Request",
                 HttpStatus.BAD_REQUEST.value(),
-                "Validation failed for one or more fields",
+                "Validation failed for one or more fields: " + details,
                 request.getRequestURI(),
                 "VALIDATION_ERROR",
                 null,

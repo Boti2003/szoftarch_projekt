@@ -321,3 +321,34 @@ Az architektúra központi belépési pontját a Spring Cloud Gateway (WebFlux) 
 - A Gateway útválasztási konfigurációja (`application.yml`) deklaratív módon kizárólag a publikus végpontokat route-olja a szolgáltatások felé:
   - `identity`: `/api/v1/auth/**`, `/api/v1/users/**`, `/api/v1/leaderboard/**`, `/api/v1/leaderboards/**`.
 - Bármilyen `/internal/**` próbálkozás a Gateway szintjén automatikusan `404 Not Found` hibával zárul, mielőtt egyetlen belső szervizhez vagy adatbázishoz elérne.
+
+---
+
+## 18. Frontend Kliensoldali Biztonsági Modell és Felület (Phase 9)
+
+A React 19 SPA felület (TypeScript, Material UI v6) megvalósítása a minimális kódbázis és a szigorú kliensoldali perembiztonság elveit követi.
+
+### 18.1. In-memory Access Token tárolás (XSS védelem)
+- Az Access Token szándékosan **NEM** kerül mentésre a böngésző `localStorage` vagy `sessionStorage` tárhelyébe, mivel azok tartalma tetszőleges JavaScript kód (pl. egy XSS sérülékenység) által kinyerhető lenne.
+- Ehelyett a token kizárólag a JavaScript futási memóriában (a kliens modulváltozójában) él.
+- A perzisztens munkamenetet a szigorúan `HttpOnly`, `SameSite=Strict` módon védett Refresh Token cookie biztosítja, amelyhez a JavaScript kód nem férhet hozzá.
+
+### 18.2. Csendes tokenmegújítás és konkurens hívásdeduplikáció (Silent Refresh Mutex)
+- Az 5 perces élettartamú Access Token lejárata transzparens a felhasználó számára:
+- Ha egy kérés `401 Unauthorized` választ kap, az [apiFetch](file:///home/istvan/szoftarch_projekt/frontend/src/api/client.ts) kliens interceptor a háttérben automatikusan meghívja a `POST /api/v1/auth/refresh` végpontot.
+- **Konkurens refresh védelem:** Ha a felületen egyszerre több kérés (pl. párhuzamos lekérések) kap 401-et, a kliens egy deduplikációs ígéret (`refreshPromise` mutex) mögé szervezi őket. Ez garantálja, hogy pontosan egyetlen `POST /auth/refresh` fut le. Ez kulcsfontosságú perembiztonsági védelem, mert megelőzi a párhuzamos tokenrotációt, amely a backend Refresh Token Rotation (RTR) logikáját tévesen token reuse támadásként aktiválná.
+- Sikeres frissítés után beállítja az új memóriabeli tokent, és az összes elakadt kérést automatikusan és észrevétlenül újrapróbálja az új tokennel.
+
+### 18.3. Minimalista állapotkezelés és védett útvonalak
+- Nehézsúlyú külső könyvtárak (Redux, Zustand) nélkül, egyetlen tiszta [AuthContext](file:///home/istvan/szoftarch_projekt/frontend/src/features/auth/AuthContext.tsx) szolgáltatja a bejelentkezési állapotot (`useAuth`).
+- A [ProtectedRoute](file:///home/istvan/szoftarch_projekt/frontend/src/features/auth/ProtectedRoute.tsx) komponens a nem autentikált látogatókat a `/login` oldalra irányítja a védett útvonalakról (`/profile`, `/leaderboard`).
+
+### 18.4. Gamifikációs UI és dinamikus haladás
+- A [ProfilePage](file:///home/istvan/szoftarch_projekt/frontend/src/features/profile/ProfilePage.tsx) dinamikus Material UI `LinearProgress` csíkon mutatja a következő szinthez szükséges XP haladást.
+- A [LeaderboardPage](file:///home/istvan/szoftarch_projekt/frontend/src/features/leaderboard/LeaderboardPage.tsx) az első három helyezettet vizuális jelzéssel (🥇, 🥈, 🥉) tünteti fel, és kiemeli a bejelentkezett felhasználó saját pozícióját (`myRank`).
+
+### 18.5. Eseményvezérelt Auth Lejárat és Return URL minta (Observer Minta)
+- Ha a refresh token érvénytelen (lejárt a 7 nap vagy visszavonásra került az RTR lánc), a csendes frissítés elhasal.
+- A [client.ts](file:///home/istvan/szoftarch_projekt/frontend/src/api/client.ts) az `onUnauthorized` callbacken keresztül közvetlenül értesíti az [AuthContext](file:///home/istvan/szoftarch_projekt/frontend/src/features/auth/AuthContext.tsx)-et (`setUser(null)`).
+- A [ProtectedRoute](file:///home/istvan/szoftarch_projekt/frontend/src/features/auth/ProtectedRoute.tsx) reaktívan észleli az állapot megszűnését, elmenti a felhasználó aktuális útvonalát (`state: { from: location }`), és SPA módon a `/login` oldalra navigálja a felhasználót.
+- A [LoginPage](file:///home/istvan/szoftarch_projekt/frontend/src/features/auth/LoginPage.tsx) és a [RegisterPage](file:///home/istvan/szoftarch_projekt/frontend/src/features/auth/RegisterPage.tsx) sikeres belépés után automatikusan a `from` útvonalra navigál vissza (alapértelmezetten `/profile`), így a felhasználó közvetlenül ott folytathatja a munkát, ahol a munkamenet lejárata előtt járt.
