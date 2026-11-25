@@ -6,6 +6,7 @@ import java.util.List;
 import hu.bme.szoftarch.learning.domain.exercise.AnswerMismatchException;
 import hu.bme.szoftarch.learning.domain.exercise.ExerciseContentException;
 import hu.bme.szoftarch.learning.domain.exercise.NotAutoEvaluableException;
+import hu.bme.szoftarch.learning.domain.port.AiEvaluationException;
 
 import jakarta.persistence.OptimisticLockException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -58,6 +59,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "Bad Request", ex.getMessage(), ex.getCode(), request, null);
     }
 
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ProblemDetail> handleForbidden(ForbiddenException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "Forbidden", ex.getMessage(), ex.getCode(), request, null);
+    }
+
     @ExceptionHandler(NotAutoEvaluableException.class)
     public ResponseEntity<ProblemDetail> handleNotAutoEvaluable(NotAutoEvaluableException ex,
             HttpServletRequest request) {
@@ -81,6 +87,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "Conflict",
                 "The progress was updated concurrently, please retry", "progress_conflict",
+                request, null);
+    }
+
+    @ExceptionHandler(AiEvaluationException.class)
+    public ResponseEntity<ProblemDetail> handleAiEvaluation(AiEvaluationException ex,
+            HttpServletRequest request) {
+        // Az AI-függőség elérhetetlen vagy hibás választ adott (timeout / 5xx /
+        // hiányzó-hibás body): kezelt 502, SOHA nem 500-as stacktrace. A detail
+        // általános, nem szivárogtat belső üzenetet/megoldást; a failing úton
+        // pont nem íródik és nem vonódik le, a kliens ugyanazt a kérést
+        // megismételheti (FEAT-002/003 csak sikeres kiértékelés UTÁN ír szándékot).
+        return build(HttpStatus.BAD_GATEWAY, "AI Evaluation Unavailable",
+                "The AI evaluation service is currently unavailable, please retry", "ai_unavailable",
                 request, null);
     }
 

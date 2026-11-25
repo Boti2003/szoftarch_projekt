@@ -24,6 +24,12 @@ public interface ExerciseAttemptRepository extends JpaRepository<ExerciseAttempt
     Optional<ExerciseAttempt> findByIdempotencyKey(String idempotencyKey);
 
     /**
+     * @return az adott AI-munkamenethez tartozó beküldés, ha létezik (U8:
+     *     a párbeszédes feladat üzenetváltásához és lezárásához)
+     */
+    Optional<ExerciseAttempt> findByAiSessionId(UUID aiSessionId);
+
+    /**
      * @return a felhasználó összes beküldése az adott feladatra (első-helyes
      *     detektáláshoz és a feladatonkénti legjobb pontarányhoz)
      */

@@ -35,6 +35,8 @@ management:
 learning:
   identity:
     url: ${IDENTITY_URL:http://localhost:8080}
+  ai:
+    url: ${AI_URL:http://ai-service:8080}
   daily:
     business-timezone: ${BUSINESS_TIMEZONE:Europe/Budapest}
   points:

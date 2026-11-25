@@ -90,9 +90,12 @@ public class PointAwardService {
             return;
         }
 
+        int points = attempt.getAwardedPoints() != null
+                ? attempt.getAwardedPoints()
+                : exercise.getMaxPoints();
         AwardPointsResult result = identityPointsPort.award(new AwardPointsCommand(
                 attempt.getUserId(), "EXERCISE", attempt.getExerciseId(),
-                exercise.getMaxPoints(), attempt.getPointIdempotencyKey()));
+                points, attempt.getPointIdempotencyKey()));
 
         switch (result) {
             case AWARDED -> attempt.markAwarded();

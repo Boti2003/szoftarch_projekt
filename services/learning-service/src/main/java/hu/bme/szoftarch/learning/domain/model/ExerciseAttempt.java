@@ -72,6 +72,15 @@ public class ExerciseAttempt {
     @Column(name = "next_retry_at")
     private Instant nextRetryAt;
 
+    @Column(name = "ai_session_id")
+    private UUID aiSessionId;
+
+    @Column(name = "turn_count", nullable = false)
+    private int turnCount;
+
+    @Column(name = "awarded_points")
+    private Integer awardedPoints;
+
     @Column(name = "submitted_at", nullable = false)
     private Instant submittedAt;
 
@@ -97,6 +106,7 @@ public class ExerciseAttempt {
         this.pointAwardStatus = pointAwardStatus;
         this.pointIdempotencyKey = pointIdempotencyKey;
         this.pointAttemptCount = 0;
+        this.turnCount = 0;
         this.submittedAt = submittedAt;
         this.idempotencyKey = idempotencyKey;
     }
@@ -153,6 +163,18 @@ public class ExerciseAttempt {
         return nextRetryAt;
     }
 
+    public UUID getAiSessionId() {
+        return aiSessionId;
+    }
+
+    public int getTurnCount() {
+        return turnCount;
+    }
+
+    public Integer getAwardedPoints() {
+        return awardedPoints;
+    }
+
     public Instant getSubmittedAt() {
         return submittedAt;
     }
@@ -190,5 +212,101 @@ public class ExerciseAttempt {
         this.pointAttemptCount++;
         this.pointAwardStatus = PointAwardStatus.FAILED_RETRYABLE;
         this.nextRetryAt = null;
+    }
+
+    /**
+     * Létrehoz egy párbeszédes ({@code AI_SCENARIO}) feladat LESSON kontextusú
+     * induló beküldését (U8): az eredménymezők ({@code scoreRatio}, {@code correct},
+     * {@code feedback}) még üresek, a pontjóváírás {@code NOT_APPLICABLE} — a
+     * kiértékelés és az esetleges pontszándék a munkamenet lezárásakor dől el.
+     *
+     * @param id             a beküldés azonosítója
+     * @param userId         a hitelesített felhasználó (JWT {@code sub})
+     * @param exerciseId     a feladat azonosítója
+     * @param lessonId       a lecke azonosítója (LESSON kontextus-azonosító)
+     * @param submittedAt    a létrehozás pillanata
+     * @param idempotencyKey a beküldés idempotencia-kulcsa
+     * @return az üres eredményű, induló beküldés
+     */
+    public static ExerciseAttempt startScenario(UUID id, UUID userId, UUID exerciseId, UUID lessonId,
+            Instant submittedAt, String idempotencyKey) {
+        ExerciseAttempt attempt = new ExerciseAttempt();
+        attempt.id = id;
+        attempt.userId = userId;
+        attempt.exerciseId = exerciseId;
+        attempt.context = AttemptContext.LESSON;
+        attempt.contextId = lessonId;
+        attempt.answer = null;
+        attempt.scoreRatio = null;
+        attempt.correct = null;
+        attempt.feedback = null;
+        attempt.pointAwardStatus = PointAwardStatus.NOT_APPLICABLE;
+        attempt.pointIdempotencyKey = null;
+        attempt.pointAttemptCount = 0;
+        attempt.turnCount = 0;
+        attempt.submittedAt = submittedAt;
+        attempt.idempotencyKey = idempotencyKey;
+        return attempt;
+    }
+
+    /**
+     * Beírja a párbeszédes munkamenet lezárásának kiértékelt eredményét (U8):
+     * az átlagpontarányt, a teljesítettséget és a visszajelzést. A
+     * {@code feedback} SOHA nem tartalmazhat megoldást (TERV 5.2).
+     *
+     * @param scoreRatio a három részpont átlaga a {@code [0, 1]} intervallumban
+     * @param correct    igaz, ha az átlag eléri a teljesítési küszöböt
+     * @param feedback   megoldást nem szivárogtató visszajelzés
+     */
+    public void applyScenarioResult(BigDecimal scoreRatio, boolean correct, String feedback) {
+        this.scoreRatio = scoreRatio;
+        this.correct = correct;
+        this.feedback = feedback;
+    }
+
+    /**
+     * Előkészíti az első sikeres párbeszéd-teljesítés pontjóváírását (U8): a
+     * státuszt {@code PENDING}-re, a determinisztikus idempotenciakulcsot és a
+     * szerveroldalon kiértékelt pontot állítja be. A tényleges Identity-hívást az
+     * U5 poller végzi, ezt a kiértékelt pontot küldve.
+     *
+     * @param pointIdempotencyKey a determinisztikus pont-idempotenciakulcs
+     * @param awardedPoints       a kiértékelt, jóváírandó pont
+     */
+    public void preparePointAward(String pointIdempotencyKey, int awardedPoints) {
+        this.pointAwardStatus = PointAwardStatus.PENDING;
+        this.pointIdempotencyKey = pointIdempotencyKey;
+        this.awardedPoints = awardedPoints;
+    }
+
+    /**
+     * Hozzárendeli az AI-oldali munkamenetet és beállítja a kör-számlálót
+     * (U8 párbeszédes feladat indítása).
+     *
+     * @param aiSessionId az AI-munkamenet azonosítója
+     * @param turnCount   a munkamenet induló körszáma
+     */
+    public void assignAiSession(UUID aiSessionId, int turnCount) {
+        this.aiSessionId = aiSessionId;
+        this.turnCount = turnCount;
+    }
+
+    /**
+     * Frissíti a párbeszéd kör-számlálóját (U8 üzenetváltás után).
+     *
+     * @param turnCount az új körszám
+     */
+    public void updateTurnCount(int turnCount) {
+        this.turnCount = turnCount;
+    }
+
+    /**
+     * Beállítja a szerveroldalon kiértékelt, jóváírandó pontot (U8). Ennek
+     * megléte esetén a pontjóváírás ezt küldi a fix {@code maxPoints} helyett.
+     *
+     * @param awardedPoints a kiértékelt pont (vagy {@code null}, ha nincs)
+     */
+    public void setAwardedPoints(Integer awardedPoints) {
+        this.awardedPoints = awardedPoints;
     }
 }

@@ -3,6 +3,7 @@ package hu.bme.szoftarch.learning.infrastructure.config;
 import java.time.ZoneId;
 
 import hu.bme.szoftarch.learning.domain.daily.BusinessClock;
+import hu.bme.szoftarch.learning.infrastructure.client.AiClientProperties;
 import hu.bme.szoftarch.learning.infrastructure.client.IdentityClientProperties;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -18,7 +19,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @Configuration
 @EnableScheduling
-@EnableConfigurationProperties({IdentityClientProperties.class, DailyProperties.class})
+@EnableConfigurationProperties({IdentityClientProperties.class, DailyProperties.class,
+        AiClientProperties.class})
 public class SchedulingConfig {
 
     /**

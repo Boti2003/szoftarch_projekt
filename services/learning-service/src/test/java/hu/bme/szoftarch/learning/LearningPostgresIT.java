@@ -13,6 +13,9 @@ import hu.bme.szoftarch.learning.api.dto.DailyChallengeTodayResponse;
 import hu.bme.szoftarch.learning.api.dto.DuelAnswerResponse;
 import hu.bme.szoftarch.learning.api.dto.DuelSetResponse;
 import hu.bme.szoftarch.learning.api.dto.LessonListItemResponse;
+import hu.bme.szoftarch.learning.api.dto.ScenarioCompleteResponse;
+import hu.bme.szoftarch.learning.api.dto.StartScenarioSessionResponse;
+import hu.bme.szoftarch.learning.application.AiScenarioService;
 import hu.bme.szoftarch.learning.application.AttemptService;
 import hu.bme.szoftarch.learning.application.DailyChallengeService;
 import hu.bme.szoftarch.learning.application.DuelSetService;
@@ -27,8 +30,15 @@ import hu.bme.szoftarch.learning.domain.model.PointAwardStatus;
 import hu.bme.szoftarch.learning.domain.model.ProgressStatus;
 import hu.bme.szoftarch.learning.domain.model.UserDailyProgress;
 import hu.bme.szoftarch.learning.domain.model.UserDailyProgressId;
+import hu.bme.szoftarch.learning.domain.port.AiEvaluationException;
+import hu.bme.szoftarch.learning.domain.port.AiEvaluationPort;
+import hu.bme.szoftarch.learning.domain.port.AwardPointsCommand;
 import hu.bme.szoftarch.learning.domain.port.AwardPointsResult;
 import hu.bme.szoftarch.learning.domain.port.IdentityPointsPort;
+import hu.bme.szoftarch.learning.domain.port.ScenarioEvaluation;
+import hu.bme.szoftarch.learning.domain.port.ScenarioMessage;
+import hu.bme.szoftarch.learning.domain.port.ScenarioSession;
+import hu.bme.szoftarch.learning.domain.port.TranslationEvaluation;
 import hu.bme.szoftarch.learning.domain.repository.ExerciseAttemptRepository;
 import hu.bme.szoftarch.learning.domain.repository.LessonProgressRepository;
 import hu.bme.szoftarch.learning.domain.repository.UserDailyProgressRepository;
@@ -94,6 +104,7 @@ class LearningPostgresIT {
     }
 
     private final AttemptService attemptService;
+    private final AiScenarioService aiScenarioService;
     private final LessonService lessonService;
     private final EnrollmentService enrollmentService;
     private final DailyChallengeService dailyChallengeService;
@@ -109,8 +120,12 @@ class LearningPostgresIT {
     @MockitoBean
     private IdentityPointsPort identityPointsPort;
 
+    @MockitoBean
+    private AiEvaluationPort aiEvaluationPort;
+
     @Autowired
-    LearningPostgresIT(AttemptService attemptService, LessonService lessonService,
+    LearningPostgresIT(AttemptService attemptService, AiScenarioService aiScenarioService,
+            LessonService lessonService,
             EnrollmentService enrollmentService, DailyChallengeService dailyChallengeService,
             DuelSetService duelSetService,
             PointAwardService pointAwardService, ExerciseAttemptRepository attemptRepository,
@@ -118,6 +133,7 @@ class LearningPostgresIT {
             UserDailyProgressRepository dailyProgressRepository, BusinessClock businessClock,
             TestLearningData data, ObjectMapper objectMapper) {
         this.attemptService = attemptService;
+        this.aiScenarioService = aiScenarioService;
         this.lessonService = lessonService;
         this.enrollmentService = enrollmentService;
         this.dailyChallengeService = dailyChallengeService;
@@ -419,11 +435,14 @@ class LearningPostgresIT {
         UUID userId = UUID.randomUUID();
         DailyChallengeTodayResponse today = dailyChallengeService.getToday(userId, en);
 
-        // Két helyes, egy helytelen (MATCHING rossz pár -> 0.0).
+        // Két helyes, egy helytelen. A harmadik, helytelen válasz a feladat
+        // TÍPUSÁHOZ illeszkedik (típus-helyes, de rossz tartalom), hogy minden
+        // kiválasztási sorrendben deszerializálható legyen; a tartalom hibás, így
+        // a feladat 0.0-ra értékelődik (<2 helyes nem keletkezik).
         int idx = 0;
         for (var ex : today.exercises()) {
             String answer = idx < 2 ? correctAnswerFor(ex.type())
-                    : "{\"pairs\": [{\"leftId\": \"l1\", \"rightId\": \"r2\"}]}";
+                    : WRONG_TRUE_FALSE_OR_WRONG(ex.type());
             dailyChallengeService.submit(userId, en, ex.exerciseId(), UUID.randomUUID().toString(), json(answer));
             idx++;
         }
@@ -698,5 +717,180 @@ class LearningPostgresIT {
         assertThat(results).hasSize(threads);
         assertThat(results.stream().distinct().toList()).hasSize(1);
         Mockito.verifyNoInteractions(identityPointsPort);
+    }
+
+    // ========================= U8 AI kiértékelés (FEAT-004) =================
+
+    private UUID seedTranslation(UUID lessonId, int orderIndex, boolean required) {
+        return data.exerciseScorable(lessonId, "TRANSLATION", orderIndex,
+                ExerciseSamples.TRANSLATION.payloadJson(), null, 10, required);
+    }
+
+    private UUID seedScenario(UUID lessonId, int orderIndex, boolean required, int maxPoints) {
+        return data.exerciseScorable(lessonId, "AI_SCENARIO", orderIndex,
+                ExerciseSamples.AI_SCENARIO.payloadJson(), null, maxPoints, required);
+    }
+
+    // (m) Teljes fordítós flow valódi Postgresen: >= 0.70 -> elfogadva + PENDING,
+    // majd a poller a mockolt porttal AWARDED-öt kap -> AWARDED, és a parancs a
+    // fix maxPoints pontot hordozza.
+    @Test
+    void translationAcceptedThenAwardedCarriesMaxPoints() {
+        UUID userId = UUID.randomUUID();
+        UUID en = data.language("en", "English", true);
+        UUID lesson = data.lesson(en, 1, "Lesson 1");
+        UUID exercise = seedTranslation(lesson, 1, true);
+
+        Mockito.when(aiEvaluationPort.evaluateTranslation(Mockito.any()))
+                .thenReturn(new TranslationEvaluation(new BigDecimal("0.85"), true, "Nice work."));
+        Mockito.when(identityPointsPort.award(Mockito.any())).thenReturn(AwardPointsResult.AWARDED);
+
+        AttemptResponse response = attemptService.submit(userId, exercise, UUID.randomUUID().toString(),
+                json("{\"text\": \"Good morning\"}"));
+        assertThat(response.correct()).isTrue();
+        assertThat(response.pointAwardStatus()).isEqualTo(PointAwardStatus.PENDING);
+
+        ExerciseAttempt stored = attemptRepository.findByUserIdAndExerciseId(userId, exercise).getFirst();
+        assertThat(stored.getPointAwardStatus()).isEqualTo(PointAwardStatus.PENDING);
+        assertThat(stored.getScoreRatio()).isEqualByComparingTo(new BigDecimal("0.8500"));
+
+        // A poller elküldi a pontot: AWARDED, a parancs a fix maxPoints-ot hordozza.
+        pointAwardService.processAttempt(stored.getId());
+
+        ArgumentCaptor<AwardPointsCommand> captor = ArgumentCaptor.forClass(AwardPointsCommand.class);
+        Mockito.verify(identityPointsPort).award(captor.capture());
+        assertThat(captor.getValue().points()).isEqualTo(10);
+        assertThat(captor.getValue().idempotencyKey())
+                .isEqualTo("exercise:" + userId + ":" + exercise + ":first-success");
+
+        ExerciseAttempt awarded = attemptRepository.findById(stored.getId()).orElseThrow();
+        assertThat(awarded.getPointAwardStatus()).isEqualTo(PointAwardStatus.AWARDED);
+    }
+
+    // (n) Fordítós AI-hiba valódi Postgresen: a port kivételt dob -> a tranzakció
+    // visszagördül, NINCS attempt sor és NINCS pontszándék, és SOHA nincs Identity-hívás.
+    @Test
+    void translationAiFailureWritesNoAttemptAndNoAward() {
+        UUID userId = UUID.randomUUID();
+        UUID en = data.language("en", "English", true);
+        UUID lesson = data.lesson(en, 1, "Lesson 1");
+        UUID exercise = seedTranslation(lesson, 1, true);
+
+        Mockito.when(aiEvaluationPort.evaluateTranslation(Mockito.any()))
+                .thenThrow(new AiEvaluationException("upstream 503"));
+
+        assertThatThrownBy(() -> attemptService.submit(userId, exercise, UUID.randomUUID().toString(),
+                json("{\"text\": \"Good morning\"}")))
+                .isInstanceOf(AiEvaluationException.class);
+
+        assertThat(attemptRepository.findByUserIdAndExerciseId(userId, exercise)).isEmpty();
+        Mockito.verifyNoInteractions(identityPointsPort);
+    }
+
+    // (o) Teljes párbeszédes flow valódi Postgresen: indítás -> >= 3 üzenet ->
+    // lezárás átlag >= 0.60 -> teljesült + PENDING a kiértékelt ponttal, majd a
+    // poller a kiértékelt (nem maxPoints) pontot küldi.
+    @Test
+    void scenarioCompletedThenAwardedCarriesEvaluatedPoints() {
+        UUID userId = UUID.randomUUID();
+        UUID en = data.language("en", "English", true);
+        UUID lesson = data.lesson(en, 1, "Lesson 1");
+        // maxPoints 40 -> round(0.80 * 40) = 32, 30-ra korlátozva.
+        UUID exercise = seedScenario(lesson, 1, false, 40);
+        UUID aiSessionId = UUID.randomUUID();
+
+        Mockito.when(aiEvaluationPort.startScenarioSession(Mockito.any()))
+                .thenReturn(new ScenarioSession(aiSessionId, "Welcome!"));
+        StartScenarioSessionResponse start = aiScenarioService.startSession(
+                userId, exercise, UUID.randomUUID().toString());
+        assertThat(start.sessionId()).isEqualTo(aiSessionId);
+
+        for (int turn = 1; turn <= 3; turn++) {
+            Mockito.when(aiEvaluationPort.sendScenarioMessage(Mockito.any()))
+                    .thenReturn(new ScenarioMessage("reply", turn));
+            aiScenarioService.sendMessage(userId, aiSessionId, "hello");
+        }
+
+        Mockito.when(aiEvaluationPort.completeScenarioSession(Mockito.any()))
+                .thenReturn(new ScenarioEvaluation(new BigDecimal("0.80"), new BigDecimal("0.80"),
+                        new BigDecimal("0.80"), "Good conversation."));
+        ScenarioCompleteResponse complete = aiScenarioService.complete(
+                userId, aiSessionId, UUID.randomUUID().toString());
+        assertThat(complete.completed()).isTrue();
+        assertThat(complete.points()).isEqualTo(30);
+
+        ExerciseAttempt stored = attemptRepository.findByAiSessionId(aiSessionId).orElseThrow();
+        assertThat(stored.getPointAwardStatus()).isEqualTo(PointAwardStatus.PENDING);
+        assertThat(stored.getAwardedPoints()).isEqualTo(30);
+        assertThat(stored.getScoreRatio()).isEqualByComparingTo(new BigDecimal("0.8000"));
+
+        // A poller a KIÉRTÉKELT (30, nem a 40-es maxPoints) pontot küldi.
+        Mockito.when(identityPointsPort.award(Mockito.any())).thenReturn(AwardPointsResult.AWARDED);
+        pointAwardService.processAttempt(stored.getId());
+
+        ArgumentCaptor<AwardPointsCommand> captor = ArgumentCaptor.forClass(AwardPointsCommand.class);
+        Mockito.verify(identityPointsPort).award(captor.capture());
+        assertThat(captor.getValue().points()).isEqualTo(30);
+
+        ExerciseAttempt awarded = attemptRepository.findById(stored.getId()).orElseThrow();
+        assertThat(awarded.getPointAwardStatus()).isEqualTo(PointAwardStatus.AWARDED);
+    }
+
+    // (p) Nyolckörös automatikus lezárási út: a 8. körnél a lezárás engedett (a
+    // MIN_TURNS feltétel teljesül), az eredmény mentve valódi Postgresen.
+    @Test
+    void scenarioEightTurnAutoCompletePath() {
+        UUID userId = UUID.randomUUID();
+        UUID en = data.language("en", "English", true);
+        UUID lesson = data.lesson(en, 1, "Lesson 1");
+        UUID exercise = seedScenario(lesson, 1, false, 30);
+        UUID aiSessionId = UUID.randomUUID();
+
+        Mockito.when(aiEvaluationPort.startScenarioSession(Mockito.any()))
+                .thenReturn(new ScenarioSession(aiSessionId, "Welcome!"));
+        aiScenarioService.startSession(userId, exercise, UUID.randomUUID().toString());
+
+        for (int turn = 1; turn <= 8; turn++) {
+            Mockito.when(aiEvaluationPort.sendScenarioMessage(Mockito.any()))
+                    .thenReturn(new ScenarioMessage("reply", turn));
+            aiScenarioService.sendMessage(userId, aiSessionId, "hello");
+        }
+
+        Mockito.when(aiEvaluationPort.completeScenarioSession(Mockito.any()))
+                .thenReturn(new ScenarioEvaluation(new BigDecimal("0.70"), new BigDecimal("0.70"),
+                        new BigDecimal("0.70"), "Done."));
+        ScenarioCompleteResponse complete = aiScenarioService.complete(
+                userId, aiSessionId, UUID.randomUUID().toString());
+        assertThat(complete.completed()).isTrue();
+
+        ExerciseAttempt stored = attemptRepository.findByAiSessionId(aiSessionId).orElseThrow();
+        assertThat(stored.getTurnCount()).isEqualTo(8);
+        assertThat(stored.getCorrect()).isTrue();
+    }
+
+    // (q) Opcionális AI feladat jelenléte/hibája NEM befolyásolja a U4
+    // leckekészültséget: a készültség csak a KÖTELEZŐ auto feladatokon dől el. A
+    // kötelező TRUE_FALSE helyes beküldése önmagában teljesíti a leckét, az
+    // opcionális (required_for_completion=false) AI_SCENARIO feladattól függetlenül.
+    @Test
+    void optionalAiExerciseDoesNotAffectLessonCompletion() {
+        UUID userId = UUID.randomUUID();
+        UUID en = data.language("en", "English", true);
+        UUID lesson = data.lesson(en, 1, "Lesson 1");
+        UUID required = data.exerciseScorable(lesson, "TRUE_FALSE", 1,
+                ExerciseSamples.TRUE_FALSE.payloadJson(), ExerciseSamples.TRUE_FALSE.solutionJson(), 10, true);
+        // Opcionális AI feladat (not required) ugyanabban a leckében.
+        seedScenario(lesson, 2, false, 30);
+
+        // Csak a kötelező feladatra küld be helyeset: a lecke teljesül az
+        // opcionális AI feladat érintése nélkül.
+        attemptService.submit(userId, required, UUID.randomUUID().toString(), json(CORRECT_TRUE_FALSE));
+
+        LessonProgress progress = lessonProgressRepository
+                .findById(new LessonProgressId(userId, lesson)).orElseThrow();
+        assertThat(progress.getStatus()).isEqualTo(ProgressStatus.COMPLETED);
+        assertThat(progress.getBestScoreRatio()).isEqualByComparingTo(new BigDecimal("1.0000"));
+        // Az opcionális AI feladathoz nem ment semmilyen kiértékelés.
+        Mockito.verifyNoInteractions(aiEvaluationPort);
     }
 }

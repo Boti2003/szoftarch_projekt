@@ -74,6 +74,9 @@ CREATE TABLE IF NOT EXISTS exercise_attempts (
     point_idempotency_key VARCHAR(255),
     point_attempt_count   INT NOT NULL DEFAULT 0,
     next_retry_at         TIMESTAMP WITH TIME ZONE,
+    ai_session_id         UUID,
+    turn_count            INT NOT NULL DEFAULT 0,
+    awarded_points        INT,
     submitted_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     idempotency_key       VARCHAR(255) NOT NULL UNIQUE
 );

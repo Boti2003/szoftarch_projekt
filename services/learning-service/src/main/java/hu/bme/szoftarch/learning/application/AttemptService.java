@@ -9,9 +9,12 @@ import java.util.stream.Collectors;
 
 import hu.bme.szoftarch.learning.api.NotFoundException;
 import hu.bme.szoftarch.learning.api.dto.AttemptResponse;
+import hu.bme.szoftarch.learning.domain.exercise.AiScoring;
+import hu.bme.szoftarch.learning.domain.exercise.AnswerMismatchException;
 import hu.bme.szoftarch.learning.domain.exercise.EvaluationResult;
 import hu.bme.szoftarch.learning.domain.exercise.EvaluatorRegistry;
 import hu.bme.szoftarch.learning.domain.exercise.ExerciseSolution;
+import hu.bme.szoftarch.learning.domain.exercise.TranslationPayload;
 import hu.bme.szoftarch.learning.domain.exercise.UserAnswer;
 import hu.bme.szoftarch.learning.domain.model.AttemptContext;
 import hu.bme.szoftarch.learning.domain.model.Exercise;
@@ -20,6 +23,9 @@ import hu.bme.szoftarch.learning.domain.model.ExerciseType;
 import hu.bme.szoftarch.learning.domain.model.LessonProgress;
 import hu.bme.szoftarch.learning.domain.model.LessonProgressId;
 import hu.bme.szoftarch.learning.domain.model.PointAwardStatus;
+import hu.bme.szoftarch.learning.domain.port.AiEvaluationPort;
+import hu.bme.szoftarch.learning.domain.port.EvaluateTranslationCommand;
+import hu.bme.szoftarch.learning.domain.port.TranslationEvaluation;
 import hu.bme.szoftarch.learning.domain.progress.LessonCompletion;
 import hu.bme.szoftarch.learning.domain.repository.ExerciseAttemptRepository;
 import hu.bme.szoftarch.learning.domain.repository.ExerciseRepository;
@@ -59,6 +65,7 @@ public class AttemptService {
     private final LessonProgressRepository lessonProgressRepository;
     private final ExerciseContentCodec contentCodec;
     private final EvaluatorRegistry evaluatorRegistry;
+    private final AiEvaluationPort aiEvaluationPort;
     private final AttemptService self;
 
     public AttemptService(ExerciseRepository exerciseRepository,
@@ -66,12 +73,14 @@ public class AttemptService {
             LessonProgressRepository lessonProgressRepository,
             ExerciseContentCodec contentCodec,
             EvaluatorRegistry evaluatorRegistry,
+            AiEvaluationPort aiEvaluationPort,
             @Lazy AttemptService self) {
         this.exerciseRepository = exerciseRepository;
         this.attemptRepository = attemptRepository;
         this.lessonProgressRepository = lessonProgressRepository;
         this.contentCodec = contentCodec;
         this.evaluatorRegistry = evaluatorRegistry;
+        this.aiEvaluationPort = aiEvaluationPort;
         this.self = self;
     }
 
@@ -117,13 +126,21 @@ public class AttemptService {
                 .orElseThrow(() -> new NotFoundException(
                         "exercise_not_found", "Exercise not found or not available"));
 
-        // (c) AI-típusok nem itt értékelődnek; kezelt 400 a handlerben.
+        // (c) Típus szerinti kiértékelés: a fordítós (TRANSLATION) feladat az AI
+        // porton keresztül, a megbízható payload-konfiggal; az AI_SCENARIO továbbra
+        // is kezelt 400 (saját végpontjai vannak), a többi típus az U3 evaluatorral.
         ExerciseType type = exercise.getType();
-        // (d) Megbízható megoldás + kliensválasz feloldása, majd kiértékelés.
-        ExerciseSolution solution = contentCodec.readSolution(type, exercise.getSolution())
-                .orElseThrow(() -> new hu.bme.szoftarch.learning.domain.exercise.NotAutoEvaluableException(type));
-        UserAnswer answer = contentCodec.readAnswer(type, answerJson);
-        EvaluationResult result = evaluatorRegistry.evaluate(type, solution, answer);
+        EvaluationResult result;
+        if (type == ExerciseType.TRANSLATION) {
+            result = evaluateTranslation(exercise, answerJson);
+        } else {
+            // Megbízható megoldás + kliensválasz feloldása, majd kiértékelés. Az
+            // AI_SCENARIO-nak nincs solutionje -> NotAutoEvaluableException (400).
+            ExerciseSolution solution = contentCodec.readSolution(type, exercise.getSolution())
+                    .orElseThrow(() -> new hu.bme.szoftarch.learning.domain.exercise.NotAutoEvaluableException(type));
+            UserAnswer answer = contentCodec.readAnswer(type, answerJson);
+            result = evaluatorRegistry.evaluate(type, solution, answer);
+        }
 
         // (f) Pontszándék: csak az ELSŐ helyes megoldásra PENDING.
         boolean firstSuccess = result.correct() && attemptRepository
@@ -152,6 +169,46 @@ public class AttemptService {
         updateLessonProgress(userId, exercise.getLessonId(), now);
 
         return toResponse(attempt);
+    }
+
+    /**
+     * A fordítós (TRANSLATION) beküldés AI-kiértékelése. A megbízható payload-
+     * konfigot ({@code sourceText}/{@code targetLanguageCode}/{@code rubric})
+     * használja, a kliens bemenetéből KIZÁRÓLAG a felhasználói fordítás szövegét
+     * veszi át — a feladat-konfigot soha nem a kliens adja (TERV 5.2).
+     *
+     * <p>A hiányzó/üres fordítás kezelt 400 ({@link AnswerMismatchException}). Az
+     * AI-oldali hiba ({@code AiEvaluationException}) kibukik ebből a metódusból, így
+     * a hívó tranzakció visszagördül és pontszándék sem íródik.</p>
+     */
+    private EvaluationResult evaluateTranslation(Exercise exercise, JsonNode answerJson) {
+        TranslationPayload payload = (TranslationPayload) contentCodec
+                .readPayload(ExerciseType.TRANSLATION, exercise.getPayload());
+
+        String userTranslation = extractTranslationText(answerJson);
+
+        TranslationEvaluation evaluation = aiEvaluationPort.evaluateTranslation(
+                new EvaluateTranslationCommand(payload.sourceText(), payload.targetLanguageCode(),
+                        payload.rubric(), userTranslation));
+
+        boolean accepted = AiScoring.translationAccepted(evaluation.score());
+        return new EvaluationResult(evaluation.score(), accepted, evaluation.feedback());
+    }
+
+    /**
+     * Kiolvassa a felhasználó fordítását a nyers válasz JSON {@code text}
+     * mezőjéből. A válasz a kliens bemenete (adat), ezért a hiányzó/üres szöveg
+     * kezelt 400-at ({@link AnswerMismatchException}) ad, nem szerverhibát.
+     */
+    private static String extractTranslationText(JsonNode answerJson) {
+        if (answerJson == null || !answerJson.has("text")) {
+            throw new AnswerMismatchException("Missing translation text for exercise type TRANSLATION");
+        }
+        String text = answerJson.get("text").asString();
+        if (text == null || text.isBlank()) {
+            throw new AnswerMismatchException("Blank translation text for exercise type TRANSLATION");
+        }
+        return text;
     }
 
     /**
