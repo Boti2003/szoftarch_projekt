@@ -1,12 +1,17 @@
 package hu.bme.szoftarch.ai.infrastructure;
 
+import hu.bme.szoftarch.ai.domain.ConversationTurn;
 import hu.bme.szoftarch.ai.domain.LanguageModelClient;
+import hu.bme.szoftarch.ai.domain.MessageRole;
+import hu.bme.szoftarch.ai.domain.ScenarioConfig;
+import hu.bme.szoftarch.ai.domain.ScenarioEvaluation;
 import hu.bme.szoftarch.ai.domain.TranslationEvaluation;
 import hu.bme.szoftarch.ai.domain.TranslationRequest;
 
 import java.text.Normalizer;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -39,6 +44,87 @@ public class FakeLanguageModelClient implements LanguageModelClient {
 
         double score = round2(bestScore);
         return TranslationEvaluation.of(score, buildFeedback(score));
+    }
+
+    @Override
+    public String continueScenario(ScenarioConfig config, List<ConversationTurn> history) {
+        long userTurns = history.stream().filter(t -> t.role() == MessageRole.USER).count();
+        String lastUser = history.stream()
+                .filter(t -> t.role() == MessageRole.USER)
+                .reduce((first, second) -> second)
+                .map(ConversationTurn::content)
+                .orElse("");
+
+        // Determinisztikus, a helyzethez illő válasz a fordulószám alapján.
+        // A valódi adapter ezt a külső modell válaszára cseréli.
+        String role = config.role() == null || config.role().isBlank() ? "partner" : config.role();
+        return switch ((int) Math.min(userTurns, 3)) {
+            case 0, 1 -> "(" + role + ") Rendben, értem. Mesélj még erről: \"" + shorten(lastUser) + "\"?";
+            case 2 -> "(" + role + ") Jó. És mit szeretnél még tenni ebben a helyzetben?";
+            default -> "(" + role + ") Köszönöm, azt hiszem minden megvan, amire szükség volt.";
+        };
+    }
+
+    @Override
+    public ScenarioEvaluation evaluateScenario(ScenarioConfig config, List<ConversationTurn> history) {
+        List<String> userMessages = history.stream()
+                .filter(t -> t.role() == MessageRole.USER)
+                .map(ConversationTurn::content)
+                .toList();
+
+        // Érthetőség: az üzenetek átlagos hossza (hosszabb, tagoltabb válasz jobb),
+        // 3–20 szó között lineárisan skálázva.
+        double avgWords = userMessages.isEmpty() ? 0
+                : userMessages.stream().mapToInt(m -> m.trim().split("\\s+").length).average().orElse(0);
+        double comprehensibility = clamp((avgWords - 3.0) / (20.0 - 3.0));
+
+        // Nyelvhelyesség: a célnyelvi karakterkészlet aránya (betűk/szóközök),
+        // egyszerű proxy a "tisztán megírt" szövegre.
+        double grammar = userMessages.isEmpty() ? 0 : userMessages.stream()
+                .mapToDouble(this::alphaRatio).average().orElse(0);
+
+        // Feladatteljesítés: a cél kulcsszavai mennyire jelennek meg a beszélgetésben.
+        double taskCompletion = goalCoverage(config, userMessages);
+
+        double overall = (comprehensibility + grammar + taskCompletion) / 3.0;
+        String feedback = overall >= ScenarioEvaluation.PASS_THRESHOLD
+                ? "Szép munka, a beszélgetés célját elérted."
+                : "A beszélgetés rövid vagy hiányos maradt, próbálj részletesebben válaszolni.";
+
+        return new ScenarioEvaluation(
+                round2(comprehensibility), round2(grammar), round2(taskCompletion), feedback);
+    }
+
+    private double goalCoverage(ScenarioConfig config, List<String> userMessages) {
+        if (config.goal() == null || config.goal().isBlank()) {
+            return 0.5;
+        }
+        Set<String> goalTokens = tokenize(config.goal());
+        if (goalTokens.isEmpty()) {
+            return 0.5;
+        }
+        Set<String> spoken = new LinkedHashSet<>();
+        userMessages.forEach(m -> spoken.addAll(tokenize(m)));
+
+        long covered = goalTokens.stream().filter(spoken::contains).count();
+        return (double) covered / goalTokens.size();
+    }
+
+    private double alphaRatio(String text) {
+        if (text.isBlank()) {
+            return 0.0;
+        }
+        long relevant = text.chars().filter(c -> Character.isLetter(c) || Character.isWhitespace(c)).count();
+        return (double) relevant / text.length();
+    }
+
+    private double clamp(double value) {
+        return Math.max(0.0, Math.min(1.0, value));
+    }
+
+    private String shorten(String text) {
+        String trimmed = text.trim();
+        return trimmed.length() <= 40 ? trimmed : trimmed.substring(0, 40) + "…";
     }
 
     private String buildFeedback(double score) {

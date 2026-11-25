@@ -1,5 +1,7 @@
 package hu.bme.szoftarch.ai.domain;
 
+import java.util.List;
+
 /**
  * Nyelvi modell adapter port.
  *
@@ -18,4 +20,24 @@ public interface LanguageModelClient {
      * @throws LanguageModelException ha az értékelés nem állítható elő
      */
     TranslationEvaluation evaluateTranslation(TranslationRequest request);
+
+    /**
+     * Válasz generálása egy szituáció-beszélgetés következő fordulójára.
+     *
+     * @param config  a szituáció megbízható konfigurációja
+     * @param history az eddigi beszélgetés (régebbitől a legújabbig)
+     * @return az AI válaszüzenetének szövege
+     * @throws LanguageModelException ha a válasz nem állítható elő
+     */
+    String continueScenario(ScenarioConfig config, List<ConversationTurn> history);
+
+    /**
+     * A szituáció záró értékelése a teljes beszélgetés alapján.
+     *
+     * @param config  a szituáció megbízható konfigurációja
+     * @param history a teljes beszélgetés
+     * @return érthetőség, nyelvhelyesség, feladatteljesítés és feedback
+     * @throws LanguageModelException ha az értékelés nem állítható elő
+     */
+    ScenarioEvaluation evaluateScenario(ScenarioConfig config, List<ConversationTurn> history);
 }

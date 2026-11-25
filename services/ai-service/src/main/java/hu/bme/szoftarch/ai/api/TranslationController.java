@@ -1,20 +1,21 @@
 package hu.bme.szoftarch.ai.api;
 
-import hu.bme.szoftarch.ai.api.dto.TranslationEvaluationRequestDto;
-import hu.bme.szoftarch.ai.api.dto.TranslationEvaluationResponseDto;
-import hu.bme.szoftarch.ai.application.TranslationEvaluationService;
-import hu.bme.szoftarch.ai.domain.TranslationEvaluation;
-import hu.bme.szoftarch.ai.domain.TranslationRequest;
-import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import hu.bme.szoftarch.ai.api.dto.TranslationEvaluationRequestDto;
+import hu.bme.szoftarch.ai.api.dto.TranslationEvaluationResponseDto;
+import hu.bme.szoftarch.ai.application.TranslationEvaluationService;
+import hu.bme.szoftarch.ai.domain.TranslationEvaluation;
+import hu.bme.szoftarch.ai.domain.TranslationRequest;
+import jakarta.validation.Valid;
+
 /**
- * Belső fordítás-értékelés végpont. Csak a belső hálózaton érhető el,
- * a Gateway nem route-olja ide a böngészőt.
+ * Belső fordítás-értékelés végpont. Csak a belső hálózaton érhető el, a Gateway
+ * nem route-olja ide a böngészőt.
  */
 @RestController
 @RequestMapping("/internal/v1")
