@@ -8,6 +8,7 @@ import { LanguagesPage } from '../features/learning/LanguagesPage';
 import { LessonListPage } from '../features/learning/LessonListPage';
 import { LessonDetailPage } from '../features/learning/LessonDetailPage';
 import { ExercisePlayerPage } from '../features/learning/ExercisePlayerPage';
+import { ScenarioChatPage } from '../features/learning/ScenarioChatPage';
 
 const queryClient = new QueryClient();
 
@@ -29,6 +30,7 @@ export function App() {
                 path="/lessons/:id/exercises/:exerciseId"
                 element={<ExercisePlayerPage />}
               />
+              <Route path="/scenario/:exerciseId" element={<ScenarioChatPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </AppLayout>

@@ -16,11 +16,13 @@ import { TrueFalseExercise } from './exercises/TrueFalseExercise';
 import { MatchingExercise } from './exercises/MatchingExercise';
 import { OddOneOutExercise } from './exercises/OddOneOutExercise';
 import { ErrorFindingExercise } from './exercises/ErrorFindingExercise';
+import { TranslationExercise } from './exercises/TranslationExercise';
 import {
   errorFindingSchema,
   matchingSchema,
   multipleChoiceSchema,
   oddOneOutSchema,
+  translationSchema,
   trueFalseSchema,
 } from './answerSchemas';
 import type {
@@ -49,6 +51,7 @@ interface AnswerState {
   pairs: MatchingPair[];
   selectedItemId: string | null;
   markedTokenIndexes: number[];
+  translationText: string;
 }
 
 const EMPTY_STATE: AnswerState = {
@@ -57,7 +60,13 @@ const EMPTY_STATE: AnswerState = {
   pairs: [],
   selectedItemId: null,
   markedTokenIndexes: [],
+  translationText: '',
 };
+
+// AI exercises (TRANSLATION, AI_SCENARIO) are optional for lesson completion.
+function isAiExercise(type: ExercisePresentationResponse['type']): boolean {
+  return type === 'TRANSLATION' || type === 'AI_SCENARIO';
+}
 
 // Returns the validated answer payload, or an error message for the UX.
 function buildAnswer(
@@ -100,6 +109,12 @@ function buildAnswer(
       const parsed = errorFindingSchema.safeParse({
         markedTokenIndexes: state.markedTokenIndexes,
       });
+      return parsed.success
+        ? { answer: parsed.data }
+        : { error: parsed.error.issues[0].message };
+    }
+    case 'TRANSLATION': {
+      const parsed = translationSchema.safeParse({ text: state.translationText });
       return parsed.success
         ? { answer: parsed.data }
         : { error: parsed.error.issues[0].message };
@@ -186,6 +201,17 @@ export function ExercisePlayer({ exerciseId }: Props) {
             disabled={disabled}
           />
         );
+      case 'TRANSLATION':
+        return (
+          <TranslationExercise
+            content={content}
+            value={state.translationText}
+            onChange={(translationText) =>
+              setState((s) => ({ ...s, translationText }))
+            }
+            disabled={disabled}
+          />
+        );
       default:
         return (
           <Alert severity="info">
@@ -214,6 +240,15 @@ export function ExercisePlayer({ exerciseId }: Props) {
           <Typography variant="h5" component="h1" gutterBottom>
             {presentation.prompt}
           </Typography>
+
+          {isAiExercise(presentation.type) && (
+            <Chip
+              label="Opcionális (nem kötelező a lecke teljesítéséhez)"
+              color="default"
+              size="small"
+              sx={{ mb: 1 }}
+            />
+          )}
 
           <Paper variant="outlined" sx={{ p: 3, mt: 2 }}>
             {renderInput(presentation)}

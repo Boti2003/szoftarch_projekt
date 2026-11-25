@@ -3,12 +3,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   activateLanguage,
+  completeScenario,
   getEnrollments,
   getExercise,
   getLesson,
   listLanguages,
   listLessons,
   newIdempotencyKey,
+  sendScenarioMessage,
+  startScenario,
   submitAttempt,
 } from './api';
 import type {
@@ -19,6 +22,9 @@ import type {
   LanguageResponse,
   LessonDetailResponse,
   LessonListItemResponse,
+  ScenarioCompleteResponse,
+  ScenarioMessageResponse,
+  ScenarioStartResponse,
   Uuid,
 } from './types';
 
@@ -76,5 +82,24 @@ export function useSubmitAttempt(exerciseId: Uuid) {
   return useMutation<AttemptResponse, Error, ExerciseAnswer>({
     mutationFn: (answer: ExerciseAnswer) =>
       submitAttempt(exerciseId, answer, newIdempotencyKey()),
+  });
+}
+
+export function useStartScenario(exerciseId: Uuid) {
+  return useMutation<ScenarioStartResponse, Error, void>({
+    mutationFn: () => startScenario(exerciseId, newIdempotencyKey()),
+  });
+}
+
+export function useSendScenarioMessage(sessionId: Uuid | undefined) {
+  return useMutation<ScenarioMessageResponse, Error, string>({
+    mutationFn: (message: string) =>
+      sendScenarioMessage(sessionId as Uuid, message),
+  });
+}
+
+export function useCompleteScenario(sessionId: Uuid | undefined) {
+  return useMutation<ScenarioCompleteResponse, Error, void>({
+    mutationFn: () => completeScenario(sessionId as Uuid, newIdempotencyKey()),
   });
 }
