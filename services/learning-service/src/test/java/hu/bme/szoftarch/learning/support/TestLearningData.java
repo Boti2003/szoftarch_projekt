@@ -1,5 +1,6 @@
 package hu.bme.szoftarch.learning.support;
 
+import java.sql.Types;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -57,11 +58,26 @@ public class TestLearningData {
             String payloadJson, String solutionJson, int maxPoints, boolean requiredForCompletion,
             boolean duelEligible, boolean enabled) {
         UUID id = UUID.randomUUID();
+        // A payload/solution JSONB oszlopok; a JSON stringet Types.OTHER-rel kötjük,
+        // hogy a PostgreSQL JDBC driver implicit jsonb-cast nélkül, connection-szintű
+        // stringtype=unspecified kompenzáció NÉLKÜL fogadja el (H2 TEXT-re is működik).
         jdbc.update("INSERT INTO exercises (id, lesson_id, type, difficulty, order_index, prompt, payload, "
                         + "solution, max_points, required_for_completion, duel_eligible, enabled) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                id, lessonId, type, difficulty, orderIndex, prompt, payloadJson, solutionJson,
-                maxPoints, requiredForCompletion, duelEligible, enabled);
+                ps -> {
+                    ps.setObject(1, id);
+                    ps.setObject(2, lessonId);
+                    ps.setString(3, type);
+                    ps.setString(4, difficulty);
+                    ps.setInt(5, orderIndex);
+                    ps.setString(6, prompt);
+                    ps.setObject(7, payloadJson, Types.OTHER);
+                    ps.setObject(8, solutionJson, Types.OTHER);
+                    ps.setInt(9, maxPoints);
+                    ps.setBoolean(10, requiredForCompletion);
+                    ps.setBoolean(11, duelEligible);
+                    ps.setBoolean(12, enabled);
+                });
         return id;
     }
 

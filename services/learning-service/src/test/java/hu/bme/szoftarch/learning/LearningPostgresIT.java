@@ -64,10 +64,11 @@ class LearningPostgresIT {
         // V1 + V2 a valódi sémát építse (JSONB, NUMERIC(5,4), parciális unique index).
         // Az application-test.yml H2 beállításait (schema.sql init, Flyway off) itt
         // felülírjuk — így az éles sémán tesztelünk.
-        // stringtype=unspecified: a JsonbConverter String-et köt a jsonb oszlopba, amit
-        // a Postgres JDBC driver csak így enged implicit cast nélkül.
-        registry.add("spring.datasource.url",
-                () -> POSTGRES.getJdbcUrl() + "&stringtype=unspecified");
+        // A JSONB-írás natív Hibernate @JdbcTypeCode(SqlTypes.JSON) mappinggel megy
+        // (nem String-kötés), ezért NINCS stringtype=unspecified kompenzáció: az URL
+        // azonos az éles datasource-szal, így a teszt a valódi production-wiringet
+        // bizonyítja.
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");

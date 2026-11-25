@@ -2,12 +2,12 @@ package hu.bme.szoftarch.learning.domain.model;
 
 import java.util.UUID;
 
-import hu.bme.szoftarch.learning.infrastructure.persistence.JsonbNodeConverter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import tools.jackson.databind.JsonNode;
 
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -47,11 +47,11 @@ public class Exercise {
     @Column(name = "prompt", nullable = false)
     private String prompt;
 
-    @Convert(converter = JsonbNodeConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload", nullable = false, columnDefinition = "jsonb")
     private JsonNode payload;
 
-    @Convert(converter = JsonbNodeConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "solution", columnDefinition = "jsonb")
     private JsonNode solution;
 

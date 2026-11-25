@@ -101,12 +101,13 @@
         </dependency>
         <!-- Spring Boot 4 moduláris auto-konfiguráció: a flyway-core önmagában NEM
              kapcsolja be a Flyway auto-configot, ehhez a spring-boot-flyway modul kell.
-             A LearningPostgresIT ezzel futtatja V1 + V2-t a konténeres Postgresre.
-             Teszt scope: az éles futásidejű wiring nem változik. -->
+             Alapértelmezett (compile/runtime) scope, hogy a V1 + V2 migráció
+             boot-időben lefusson az éles Postgresre (a ddl-auto=validate ezt
+             feltételezi), és a Compose egyparancsos indítás is működjön; a
+             LearningPostgresIT ugyanezt a wiringet futtatja a konténeres Postgresre. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-flyway</artifactId>
-            <scope>test</scope>
         </dependency>
     </dependencies>
 
