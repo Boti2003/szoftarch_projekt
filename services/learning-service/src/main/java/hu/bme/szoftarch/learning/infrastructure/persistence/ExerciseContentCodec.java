@@ -3,10 +3,13 @@ package hu.bme.szoftarch.learning.infrastructure.persistence;
 import java.util.Optional;
 import java.util.Set;
 
+import hu.bme.szoftarch.learning.domain.exercise.AnswerMismatchException;
 import hu.bme.szoftarch.learning.domain.exercise.ExerciseContentException;
 import hu.bme.szoftarch.learning.domain.exercise.ExercisePayload;
 import hu.bme.szoftarch.learning.domain.exercise.ExerciseSolution;
 import hu.bme.szoftarch.learning.domain.exercise.ExerciseTypeContent;
+import hu.bme.szoftarch.learning.domain.exercise.NotAutoEvaluableException;
+import hu.bme.szoftarch.learning.domain.exercise.UserAnswer;
 import hu.bme.szoftarch.learning.domain.model.ExerciseType;
 
 import tools.jackson.databind.JsonNode;
@@ -74,6 +77,53 @@ public class ExerciseContentCodec {
         ExerciseSolution value = deserialize(type, "solution", solution, solutionType.get());
         validate(type, "solution", value);
         return Optional.of(value);
+    }
+
+    /**
+     * A kliens nyers válasz JSON-ját a feladattípushoz tartozó
+     * {@link UserAnswer} recordra deszerializálja és validálja. A válasz a
+     * kliens bemenete, ezért a hibaágak NEM szerveroldali
+     * {@link ExerciseContentException}-t adnak, hanem kezelt, 400-ra fordítható
+     * jelzést.
+     *
+     * @throws NotAutoEvaluableException ha a típusnak nincs {@link UserAnswer}
+     *     recordja (AI-típusok)
+     * @throws AnswerMismatchException   ha a válasz JSON hiányzik, nem
+     *     deszerializálható vagy megsérti a validációs szabályokat
+     */
+    public UserAnswer readAnswer(ExerciseType type, JsonNode answer) {
+        Optional<Class<? extends UserAnswer>> answerType = ExerciseTypeContent.of(type).answerType();
+        if (answerType.isEmpty()) {
+            throw new NotAutoEvaluableException(type);
+        }
+        if (answer == null || answer.isNull()) {
+            throw new AnswerMismatchException("Missing answer for exercise type " + type);
+        }
+        UserAnswer value = deserializeAnswer(type, answer, answerType.get());
+        validateAnswer(type, value);
+        return value;
+    }
+
+    private UserAnswer deserializeAnswer(ExerciseType type, JsonNode node,
+            Class<? extends UserAnswer> targetType) {
+        try {
+            return objectMapper.treeToValue(node, targetType);
+        } catch (RuntimeException e) {
+            throw new AnswerMismatchException("Unable to deserialize answer for exercise type " + type);
+        }
+    }
+
+    private void validateAnswer(ExerciseType type, UserAnswer value) {
+        Set<ConstraintViolation<UserAnswer>> violations = validator.validate(value);
+        if (!violations.isEmpty()) {
+            String details = violations.stream()
+                    .map(v -> v.getPropertyPath() + " " + v.getMessage())
+                    .sorted()
+                    .reduce((a, b) -> a + "; " + b)
+                    .orElse("");
+            throw new AnswerMismatchException(
+                    "Invalid answer for exercise type " + type + ": " + details);
+        }
     }
 
     private <T> T deserialize(ExerciseType type, String field, JsonNode node, Class<T> targetType) {

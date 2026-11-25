@@ -4,7 +4,6 @@ import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-
 /**
  * Teszt-only segéd a learning táblák feltöltéséhez és ürítéséhez JDBC-vel.
  * Csak a teszt classpathon létezik; éles kódba nem kerül.
@@ -19,6 +18,7 @@ public class TestLearningData {
     }
 
     public void deleteAll() {
+        jdbc.update("DELETE FROM exercise_attempts");
         jdbc.update("DELETE FROM exercises");
         jdbc.update("DELETE FROM lesson_progress");
         jdbc.update("DELETE FROM user_language_enrollments");
@@ -65,8 +65,32 @@ public class TestLearningData {
         return id;
     }
 
-    public void progressCompleted(UUID userId, UUID lessonId) {
-        insertProgress(userId, lessonId, "COMPLETED");
+    /**
+     * Beszúr egy auto-kiértékelhető feladatot a megadott {@code maxPoints} és
+     * {@code requiredForCompletion} értékkel, érvényes payload/solution JSON-nel.
+     */
+    public UUID exerciseScorable(UUID lessonId, String type, int orderIndex, String payloadJson,
+            String solutionJson, int maxPoints, boolean requiredForCompletion) {
+        return exercise(lessonId, type, "EASY", orderIndex, "Prompt for " + type,
+                payloadJson, solutionJson, maxPoints, requiredForCompletion, false, true);
+    }
+
+    /**
+     * Beszúr egy előzetes beküldést a feladatonkénti legjobb pontarányhoz vagy
+     * első-helyes detektáláshoz tesztelő esetekhez.
+     */
+    public UUID attempt(UUID userId, UUID exerciseId, UUID lessonId, String scoreRatio, boolean correct,
+            String idempotencyKey, String pointAwardStatus, String pointIdempotencyKey) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO exercise_attempts (id, user_id, exercise_id, context, context_id, "
+                        + "score_ratio, correct, point_award_status, point_idempotency_key, idempotency_key) "
+                        + "VALUES (?, ?, ?, 'LESSON', ?, ?, ?, ?, ?, ?)",
+                id, userId, exerciseId, lessonId, scoreRatio, correct, pointAwardStatus,
+                pointIdempotencyKey, idempotencyKey);
+        return id;
+    }
+
+    public void progressCompleted(UUID userId, UUID lessonId) {        insertProgress(userId, lessonId, "COMPLETED");
     }
 
     public void progressInProgress(UUID userId, UUID lessonId) {

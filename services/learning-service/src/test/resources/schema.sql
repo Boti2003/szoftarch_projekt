@@ -57,3 +57,22 @@ CREATE TABLE IF NOT EXISTS exercises (
     created_at              TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     UNIQUE (lesson_id, order_index)
 );
+
+-- U4: exercise_attempts. A JSONB answer-t a JPA konverter stringként kezeli,
+-- ezért a teszt-sémában TEXT (H2 nem támogatja a natív jsonb típust).
+CREATE TABLE IF NOT EXISTS exercise_attempts (
+    id                    UUID PRIMARY KEY,
+    user_id               UUID NOT NULL,
+    exercise_id           UUID NOT NULL REFERENCES exercises (id),
+    context               VARCHAR(20) NOT NULL,
+    context_id            UUID,
+    answer                TEXT,
+    score_ratio           NUMERIC(5,4),
+    correct               BOOLEAN,
+    feedback              TEXT,
+    point_award_status    VARCHAR(20) NOT NULL DEFAULT 'NOT_APPLICABLE',
+    point_idempotency_key VARCHAR(255),
+    next_retry_at         TIMESTAMP WITH TIME ZONE,
+    submitted_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    idempotency_key       VARCHAR(255) NOT NULL UNIQUE
+);

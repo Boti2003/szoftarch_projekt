@@ -41,6 +41,40 @@ public class LessonProgress {
     protected LessonProgress() {
     }
 
+    private LessonProgress(LessonProgressId id, ProgressStatus status) {
+        this.id = id;
+        this.status = status;
+    }
+
+    /**
+     * Új, még nem kezdett haladás létrehozása egy (userId, lessonId) párra.
+     */
+    public static LessonProgress start(LessonProgressId id) {
+        return new LessonProgress(id, ProgressStatus.NOT_STARTED);
+    }
+
+    /**
+     * A súlyozott legjobb pontarányt és a teljesítési állapotot frissíti egy
+     * beküldés után (TERV 5.3). A státusz legalább {@code IN_PROGRESS}; ha a
+     * lecke teljesült, {@code COMPLETED} lesz a {@code completedAt} beállításával
+     * (egyszer, a már teljesített leckét nem állítja vissza).
+     *
+     * @param weightedBestRatio a kötelező feladatok súlyozott legjobb pontaránya
+     * @param completed         igaz, ha a lecke teljesítési feltétele teljesült
+     * @param now               a teljesítés időbélyege
+     */
+    public void applySubmission(BigDecimal weightedBestRatio, boolean completed, Instant now) {
+        this.bestScoreRatio = weightedBestRatio;
+        if (completed) {
+            if (this.status != ProgressStatus.COMPLETED) {
+                this.status = ProgressStatus.COMPLETED;
+                this.completedAt = now;
+            }
+        } else if (this.status != ProgressStatus.COMPLETED) {
+            this.status = ProgressStatus.IN_PROGRESS;
+        }
+    }
+
     public LessonProgressId getId() {
         return id;
     }

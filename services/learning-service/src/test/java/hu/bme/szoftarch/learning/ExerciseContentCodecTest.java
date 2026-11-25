@@ -3,12 +3,16 @@ package hu.bme.szoftarch.learning;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import hu.bme.szoftarch.learning.domain.exercise.AnswerMismatchException;
 import hu.bme.szoftarch.learning.domain.exercise.ExerciseContentException;
 import hu.bme.szoftarch.learning.domain.exercise.ExercisePayload;
 import hu.bme.szoftarch.learning.domain.exercise.ExerciseSolution;
+import hu.bme.szoftarch.learning.domain.exercise.MultipleChoiceAnswer;
 import hu.bme.szoftarch.learning.domain.exercise.MultipleChoicePayload;
 import hu.bme.szoftarch.learning.domain.exercise.MultipleChoiceSolution;
+import hu.bme.szoftarch.learning.domain.exercise.NotAutoEvaluableException;
 import hu.bme.szoftarch.learning.domain.exercise.TranslationPayload;
+import hu.bme.szoftarch.learning.domain.exercise.UserAnswer;
 import hu.bme.szoftarch.learning.domain.model.ExerciseType;
 import hu.bme.szoftarch.learning.infrastructure.persistence.ExerciseContentCodec;
 import hu.bme.szoftarch.learning.support.ExerciseSamples;
@@ -131,5 +135,34 @@ class ExerciseContentCodecTest {
         assertThatThrownBy(() -> codec.readSolution(ExerciseType.TRUE_FALSE, null))
                 .isInstanceOf(ExerciseContentException.class)
                 .hasMessageContaining("Missing solution");
+    }
+
+    @Test
+    void readAnswerDeserializesTypedAnswer() {
+        UserAnswer answer = codec.readAnswer(
+                ExerciseType.MULTIPLE_CHOICE, json("{\"selectedOptionIds\": [\"a\", \"b\"]}"));
+        assertThat(answer).isInstanceOf(MultipleChoiceAnswer.class);
+        assertThat(((MultipleChoiceAnswer) answer).selectedOptionIds()).containsExactlyInAnyOrder("a", "b");
+    }
+
+    @Test
+    void readAnswerRejectsWrongTypedAnswerWithMismatch() {
+        // Tömb struktúra nem deszerializálható objektum-alapú válasz recordra.
+        JsonNode wrong = json("[\"a\", \"b\"]");
+        assertThatThrownBy(() -> codec.readAnswer(ExerciseType.TRUE_FALSE, wrong))
+                .isInstanceOf(AnswerMismatchException.class);
+    }
+
+    @Test
+    void readAnswerRejectsMissingAnswerWithMismatch() {
+        assertThatThrownBy(() -> codec.readAnswer(ExerciseType.MULTIPLE_CHOICE, null))
+                .isInstanceOf(AnswerMismatchException.class)
+                .hasMessageContaining("Missing answer");
+    }
+
+    @Test
+    void readAnswerRejectsAiTypeAsNotAutoEvaluable() {
+        assertThatThrownBy(() -> codec.readAnswer(ExerciseType.TRANSLATION, json("{\"text\": \"hi\"}")))
+                .isInstanceOf(NotAutoEvaluableException.class);
     }
 }

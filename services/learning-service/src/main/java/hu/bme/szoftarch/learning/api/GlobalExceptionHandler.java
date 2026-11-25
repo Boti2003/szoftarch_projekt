@@ -3,8 +3,11 @@ package hu.bme.szoftarch.learning.api;
 import java.net.URI;
 import java.util.List;
 
+import hu.bme.szoftarch.learning.domain.exercise.AnswerMismatchException;
 import hu.bme.szoftarch.learning.domain.exercise.ExerciseContentException;
+import hu.bme.szoftarch.learning.domain.exercise.NotAutoEvaluableException;
 
+import jakarta.persistence.OptimisticLockException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -18,6 +21,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.lang.Nullable;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -47,6 +51,37 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ProblemDetail> handleConflict(ConflictException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), ex.getCode(), request, null);
+    }
+
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<ProblemDetail> handleBadRequest(BadRequestException ex, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "Bad Request", ex.getMessage(), ex.getCode(), request, null);
+    }
+
+    @ExceptionHandler(NotAutoEvaluableException.class)
+    public ResponseEntity<ProblemDetail> handleNotAutoEvaluable(NotAutoEvaluableException ex,
+            HttpServletRequest request) {
+        // A kliens AI-típust küldött a beküldés-végpontra: kezelt 400, nem 500.
+        return build(HttpStatus.BAD_REQUEST, "Bad Request",
+                "This exercise type is not auto-evaluated here", "exercise_not_auto_evaluable",
+                request, null);
+    }
+
+    @ExceptionHandler(AnswerMismatchException.class)
+    public ResponseEntity<ProblemDetail> handleAnswerMismatch(AnswerMismatchException ex,
+            HttpServletRequest request) {
+        // Rossz típusú/hiányos kliensválasz: kezelt 400, megoldás nélkül.
+        return build(HttpStatus.BAD_REQUEST, "Bad Request",
+                "The submitted answer does not match the exercise type", "answer_type_mismatch",
+                request, null);
+    }
+
+    @ExceptionHandler({ObjectOptimisticLockingFailureException.class, OptimisticLockException.class})
+    public ResponseEntity<ProblemDetail> handleOptimisticLock(RuntimeException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "Conflict",
+                "The progress was updated concurrently, please retry", "progress_conflict",
+                request, null);
     }
 
     @ExceptionHandler(ExerciseContentException.class)

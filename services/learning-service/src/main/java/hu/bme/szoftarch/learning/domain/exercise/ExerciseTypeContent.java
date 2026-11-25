@@ -17,13 +17,18 @@ import hu.bme.szoftarch.learning.domain.model.ExerciseType;
  */
 public enum ExerciseTypeContent {
 
-    MULTIPLE_CHOICE(ExerciseType.MULTIPLE_CHOICE, MultipleChoicePayload.class, MultipleChoiceSolution.class),
-    TRUE_FALSE(ExerciseType.TRUE_FALSE, TrueFalsePayload.class, TrueFalseSolution.class),
-    MATCHING(ExerciseType.MATCHING, MatchingPayload.class, MatchingSolution.class),
-    ODD_ONE_OUT(ExerciseType.ODD_ONE_OUT, OddOneOutPayload.class, OddOneOutSolution.class),
-    ERROR_FINDING(ExerciseType.ERROR_FINDING, ErrorFindingPayload.class, ErrorFindingSolution.class),
-    TRANSLATION(ExerciseType.TRANSLATION, TranslationPayload.class, null),
-    AI_SCENARIO(ExerciseType.AI_SCENARIO, ScenarioPayload.class, null);
+    MULTIPLE_CHOICE(ExerciseType.MULTIPLE_CHOICE, MultipleChoicePayload.class,
+            MultipleChoiceSolution.class, MultipleChoiceAnswer.class),
+    TRUE_FALSE(ExerciseType.TRUE_FALSE, TrueFalsePayload.class,
+            TrueFalseSolution.class, TrueFalseAnswer.class),
+    MATCHING(ExerciseType.MATCHING, MatchingPayload.class,
+            MatchingSolution.class, MatchingAnswer.class),
+    ODD_ONE_OUT(ExerciseType.ODD_ONE_OUT, OddOneOutPayload.class,
+            OddOneOutSolution.class, OddOneOutAnswer.class),
+    ERROR_FINDING(ExerciseType.ERROR_FINDING, ErrorFindingPayload.class,
+            ErrorFindingSolution.class, ErrorFindingAnswer.class),
+    TRANSLATION(ExerciseType.TRANSLATION, TranslationPayload.class, null, null),
+    AI_SCENARIO(ExerciseType.AI_SCENARIO, ScenarioPayload.class, null, null);
 
     private static final Map<ExerciseType, ExerciseTypeContent> BY_TYPE;
 
@@ -38,13 +43,16 @@ public enum ExerciseTypeContent {
     private final ExerciseType exerciseType;
     private final Class<? extends ExercisePayload> payloadType;
     private final Class<? extends ExerciseSolution> solutionType;
+    private final Class<? extends UserAnswer> answerType;
 
     ExerciseTypeContent(ExerciseType exerciseType,
             Class<? extends ExercisePayload> payloadType,
-            Class<? extends ExerciseSolution> solutionType) {
+            Class<? extends ExerciseSolution> solutionType,
+            Class<? extends UserAnswer> answerType) {
         this.exerciseType = exerciseType;
         this.payloadType = payloadType;
         this.solutionType = solutionType;
+        this.answerType = answerType;
     }
 
     /**
@@ -68,5 +76,14 @@ public enum ExerciseTypeContent {
      */
     public Optional<Class<? extends ExerciseSolution>> solutionType() {
         return Optional.ofNullable(solutionType);
+    }
+
+    /**
+     * @return a felhasználói válasz record típusa, vagy üres, ha a típus nem
+     *     automatikusan kiértékelhető (AI-típusoknak nincs {@link UserAnswer}
+     *     recordjuk)
+     */
+    public Optional<Class<? extends UserAnswer>> answerType() {
+        return Optional.ofNullable(answerType);
     }
 }
