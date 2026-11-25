@@ -15,6 +15,21 @@
     <name>learning-service</name>
     <description>Learning Service â€“ nyelvek, leckĂ©k, feladatok, progress, napi kihĂ­vĂˇs</description>
 
+    <dependencyManagement>
+        <dependencies>
+            <!-- A Testcontainers moduljainak verzióját a BOM kezeli (import scope);
+                 a Spring Boot parent 2.0.5-öt menedzsel, így a függőségeknél nincs
+                 explicit verzió. -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -70,6 +85,29 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Testcontainers (2.0: testcontainers- prefixes artefakt-azonosítók) a valódi
+             PostgreSQL integrációs teszthez (LearningPostgresIT). Csak teszt scope; az
+             éles (nem-teszt) classpathon nincs Testcontainers függőség. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Spring Boot 4 moduláris auto-konfiguráció: a flyway-core önmagában NEM
+             kapcsolja be a Flyway auto-configot, ehhez a spring-boot-flyway modul kell.
+             A LearningPostgresIT ezzel futtatja V1 + V2-t a konténeres Postgresre.
+             Teszt scope: az éles futásidejű wiring nem változik. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-flyway</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -78,6 +116,21 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <!-- A projekt nem használ failsafe-et; a surefire alapból csak a *Test
+                 mintát futtatja. A Testcontainers suite neve LearningPostgresIT, ezért
+                 a surefire include-listáját kiegészítjük, hogy a `mvn test` fázis a
+                 *Test és a *IT tesztet is futtassa (Docker-hez kötött integráció). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*Tests.java</include>
+                        <include>**/*IT.java</include>
+                    </includes>
+                </configuration>
             </plugin>
         </plugins>
     </build>

@@ -101,4 +101,12 @@ public class TestLearningData {
         jdbc.update("INSERT INTO lesson_progress (user_id, lesson_id, status, version) VALUES (?, ?, ?, 0)",
                 userId, lessonId, status);
     }
+
+    /**
+     * Egyetlen szöveges oszlopot olvas vissza (pl. JSONB {@code ::text}-ként) a
+     * valódi adatbázisból, a JSONB oda-vissza ellenőrzéséhez. Csak teszt célú.
+     */
+    public String jdbcString(String sql) {
+        return jdbc.queryForObject(sql, String.class);
+    }
 }
