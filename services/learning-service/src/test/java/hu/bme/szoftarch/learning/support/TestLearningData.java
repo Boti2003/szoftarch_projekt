@@ -19,6 +19,9 @@ public class TestLearningData {
     }
 
     public void deleteAll() {
+        jdbc.update("DELETE FROM duel_answers");
+        jdbc.update("DELETE FROM duel_set_exercises");
+        jdbc.update("DELETE FROM duel_sets");
         jdbc.update("DELETE FROM exercise_attempts");
         jdbc.update("DELETE FROM user_daily_progress");
         jdbc.update("DELETE FROM daily_challenge_exercises");

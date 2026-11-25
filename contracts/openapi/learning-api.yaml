@@ -90,21 +90,70 @@ paths:
       tags: [internal]
       servers: [{ url: /internal/v1 }]
       summary: 5 feladatból álló készlet létrehozása (Social hívja)
-      responses: { '201': { description: Létrehozva } }
+      description: >
+        Belső végpont; kizárólag X-Internal-Api-Key headerrel érhető el (a
+        Gateway nem route-olja). Idempotens a duelId-re: ugyanarra a duelId-re
+        ismételt hívás a meglévő készletet adja vissza. NINCS JWT user-kontextus.
+      parameters:
+        - { name: X-Internal-Api-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDuelSetRequest' }
+      responses:
+        '201':
+          description: Létrehozva vagy meglévő készlet (idempotens)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DuelSetResponse' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
   /duel-sets/{setId}:
     get:
       tags: [internal]
       servers: [{ url: /internal/v1 }]
       summary: Feladatprezentációk megoldás nélkül
-      parameters: [{ name: setId, in: path, required: true, schema: { type: string, format: uuid } }]
-      responses: { '200': { description: OK } }
+      description: >
+        Belső végpont; X-Internal-Api-Key szükséges. A készlet feladat-
+        prezentációi MEGOLDÁS NÉLKÜL, pozíció sorrendben.
+      parameters:
+        - { name: setId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: X-Internal-Api-Key, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DuelSetResponse' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
   /duel-sets/{setId}/answers:
     post:
       tags: [internal]
       servers: [{ url: /internal/v1 }]
       summary: Egy résztvevő egy válaszának idempotens pontozása
-      parameters: [{ name: setId, in: path, required: true, schema: { type: string, format: uuid } }]
-      responses: { '200': { description: OK } }
+      description: >
+        Belső végpont; X-Internal-Api-Key szükséges. A userId a payloadból jön
+        (nem JWT). Idempotens a (setId, userId, position) hármasra: helyes válasz
+        az exercise max_points-ot, hibás 0-t kap. A párbaj pontja NEM profilpont;
+        ez a végpont SOHA nem kezdeményez Identity pontjóváírást.
+      parameters:
+        - { name: setId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: X-Internal-Api-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DuelAnswerRequest' }
+      responses:
+        '200':
+          description: Pontozva
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DuelAnswerResponse' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
 
 components:
   securitySchemes:
@@ -126,6 +175,48 @@ components:
         instance: { type: string }
         code: { type: string }
         traceId: { type: string }
+    CreateDuelSetRequest:
+      type: object
+      required: [duelId, languageId]
+      properties:
+        duelId: { type: string, format: uuid, description: Social párbaj UUID (external_duel_id, egyedi) }
+        languageId: { type: string, format: uuid }
+        expiresAt: { type: string, format: date-time, nullable: true, description: Opcionális lejárat }
+    DuelSetResponse:
+      type: object
+      required: [setId, exercises]
+      properties:
+        setId: { type: string, format: uuid }
+        exercises:
+          type: array
+          description: Feladatprezentációk pozíció sorrendben, MEGOLDÁS NÉLKÜL
+          items: { $ref: '#/components/schemas/ExercisePresentation' }
+    ExercisePresentation:
+      type: object
+      description: Egy feladat prezentációja megoldás nélkül (típusfüggő content).
+      properties:
+        exerciseId: { type: string, format: uuid }
+        type: { type: string }
+        difficulty: { type: string }
+        prompt: { type: string }
+        maxPoints: { type: integer }
+        requiredForCompletion: { type: boolean }
+        duelEligible: { type: boolean }
+        content: { type: object, description: Típusfüggő prezentációs tartalom, solution nélkül }
+    DuelAnswerRequest:
+      type: object
+      required: [userId, position, answer]
+      properties:
+        userId: { type: string, format: uuid, description: A résztvevő azonosítója (a Socialtól, nem JWT) }
+        position: { type: integer, description: A feladat pozíciója a mentett készletben }
+        answer: { type: object, description: A feladattípushoz tartozó nyers válasz JSON }
+    DuelAnswerResponse:
+      type: object
+      required: [position, score, correct]
+      properties:
+        position: { type: integer }
+        score: { type: integer, description: Helyes -> exercise max_points, egyébként 0 (NEM profilpont) }
+        correct: { type: boolean }
 
 security:
   - bearerAuth: []

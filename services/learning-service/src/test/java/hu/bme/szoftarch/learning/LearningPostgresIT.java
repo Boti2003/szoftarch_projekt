@@ -10,9 +10,12 @@ import java.util.UUID;
 import hu.bme.szoftarch.learning.api.ConflictException;
 import hu.bme.szoftarch.learning.api.dto.AttemptResponse;
 import hu.bme.szoftarch.learning.api.dto.DailyChallengeTodayResponse;
+import hu.bme.szoftarch.learning.api.dto.DuelAnswerResponse;
+import hu.bme.szoftarch.learning.api.dto.DuelSetResponse;
 import hu.bme.szoftarch.learning.api.dto.LessonListItemResponse;
 import hu.bme.szoftarch.learning.application.AttemptService;
 import hu.bme.szoftarch.learning.application.DailyChallengeService;
+import hu.bme.szoftarch.learning.application.DuelSetService;
 import hu.bme.szoftarch.learning.application.EnrollmentService;
 import hu.bme.szoftarch.learning.application.LessonService;
 import hu.bme.szoftarch.learning.application.PointAwardService;
@@ -94,6 +97,7 @@ class LearningPostgresIT {
     private final LessonService lessonService;
     private final EnrollmentService enrollmentService;
     private final DailyChallengeService dailyChallengeService;
+    private final DuelSetService duelSetService;
     private final PointAwardService pointAwardService;
     private final ExerciseAttemptRepository attemptRepository;
     private final LessonProgressRepository lessonProgressRepository;
@@ -108,6 +112,7 @@ class LearningPostgresIT {
     @Autowired
     LearningPostgresIT(AttemptService attemptService, LessonService lessonService,
             EnrollmentService enrollmentService, DailyChallengeService dailyChallengeService,
+            DuelSetService duelSetService,
             PointAwardService pointAwardService, ExerciseAttemptRepository attemptRepository,
             LessonProgressRepository lessonProgressRepository,
             UserDailyProgressRepository dailyProgressRepository, BusinessClock businessClock,
@@ -116,6 +121,7 @@ class LearningPostgresIT {
         this.lessonService = lessonService;
         this.enrollmentService = enrollmentService;
         this.dailyChallengeService = dailyChallengeService;
+        this.duelSetService = duelSetService;
         this.pointAwardService = pointAwardService;
         this.attemptRepository = attemptRepository;
         this.lessonProgressRepository = lessonProgressRepository;
@@ -553,5 +559,144 @@ class LearningPostgresIT {
 
         assertThat(today.date()).isEqualTo(businessClock.today());
         assertThat(businessClock.zone()).isEqualTo(java.time.ZoneId.of("Europe/Budapest"));
+    }
+
+    // ========================= U7 párbaj duel-set ============================
+
+    private UUID seedDuelLanguage() {
+        UUID en = data.language("en", "English", true);
+        UUID lesson = data.lesson(en, 1, "Lesson 1");
+        // 5 duel-eligible auto feladat + 1 nem-duel és 1 AI (duel-eligible, de nem
+        // auto), hogy a szűrés is lásson zajt.
+        data.exerciseDuelEligible(lesson, "TRUE_FALSE", 1,
+                ExerciseSamples.TRUE_FALSE.payloadJson(), ExerciseSamples.TRUE_FALSE.solutionJson(), 10);
+        data.exerciseDuelEligible(lesson, "MULTIPLE_CHOICE", 2,
+                ExerciseSamples.MULTIPLE_CHOICE.payloadJson(), ExerciseSamples.MULTIPLE_CHOICE.solutionJson(), 10);
+        data.exerciseDuelEligible(lesson, "MATCHING", 3,
+                ExerciseSamples.MATCHING.payloadJson(), ExerciseSamples.MATCHING.solutionJson(), 10);
+        data.exerciseDuelEligible(lesson, "ODD_ONE_OUT", 4,
+                ExerciseSamples.ODD_ONE_OUT.payloadJson(), ExerciseSamples.ODD_ONE_OUT.solutionJson(), 10);
+        data.exerciseDuelEligible(lesson, "ERROR_FINDING", 5,
+                ExerciseSamples.ERROR_FINDING.payloadJson(), ExerciseSamples.ERROR_FINDING.solutionJson(), 10);
+        data.exerciseScorable(lesson, "TRUE_FALSE", 6,
+                ExerciseSamples.TRUE_FALSE.payloadJson(), ExerciseSamples.TRUE_FALSE.solutionJson(), 10, false);
+        data.exerciseDuelEligible(lesson, "TRANSLATION", 7,
+                ExerciseSamples.TRANSLATION.payloadJson(), null, 10);
+        return en;
+    }
+
+    private String duelCorrectAnswerFor(hu.bme.szoftarch.learning.domain.model.ExerciseType type) {
+        return switch (type) {
+            case TRUE_FALSE -> CORRECT_TRUE_FALSE;
+            case MULTIPLE_CHOICE -> MULTIPLE_CHOICE_CORRECT;
+            case MATCHING -> MATCHING_FULL_CORRECT;
+            case ODD_ONE_OUT -> "{\"selectedItemId\": \"i3\"}";
+            case ERROR_FINDING -> "{\"markedTokenIndexes\": [1]}";
+            default -> throw new IllegalStateException("unexpected duel type " + type);
+        };
+    }
+
+    private String duelWrongAnswerFor(hu.bme.szoftarch.learning.domain.model.ExerciseType type) {
+        return switch (type) {
+            case TRUE_FALSE -> WRONG_TRUE_FALSE;
+            case MULTIPLE_CHOICE -> "{\"selectedOptionIds\": [\"a\"]}";
+            case MATCHING -> "{\"pairs\": [{\"leftId\": \"l1\", \"rightId\": \"r2\"}]}";
+            case ODD_ONE_OUT -> "{\"selectedItemId\": \"i1\"}";
+            case ERROR_FINDING -> "{\"markedTokenIndexes\": [0]}";
+            default -> throw new IllegalStateException("unexpected duel type " + type);
+        };
+    }
+
+    // (k) Teljes párbaj-flow valódi Postgresen: 5 duel-eligible auto feladat
+    // mentve, idempotens létrehozás, mindkét fél azonos készlet, két résztvevő
+    // válaszai (helyes -> max_points, hibás -> 0), idempotens pontozás, és SOHA
+    // nincs Identity pontjóváírás erről a flow-ról.
+    @Test
+    void duelFlowPersistsFixedSetScoresAndNeverAwardsIdentityPoints() {
+        UUID en = seedDuelLanguage();
+        UUID duelId = UUID.randomUUID();
+
+        // Létrehozás: 5 feladat mentve a duel_set_exercises-be.
+        DuelSetResponse created = duelSetService.createDuelSet(duelId, en, null);
+        assertThat(created.exercises()).hasSize(5);
+        assertThat(created.exercises()).allSatisfy(e -> assertThat(e.duelEligible()).isTrue());
+
+        // Idempotens: ugyanarra a duelId-re ismételt létrehozás NEM hoz új készletet.
+        DuelSetResponse recreated = duelSetService.createDuelSet(duelId, en, null);
+        assertThat(recreated.setId()).isEqualTo(created.setId());
+
+        // Mindkét fél (két lekérés) pontosan ugyanazt az 5 feladatot kapja
+        // ugyanabban a sorrendben.
+        DuelSetResponse readOne = duelSetService.getDuelSet(created.setId());
+        DuelSetResponse readTwo = duelSetService.getDuelSet(created.setId());
+        List<UUID> idsOne = readOne.exercises().stream()
+                .map(hu.bme.szoftarch.learning.api.dto.ExercisePresentationResponse::exerciseId).toList();
+        List<UUID> idsTwo = readTwo.exercises().stream()
+                .map(hu.bme.szoftarch.learning.api.dto.ExercisePresentationResponse::exerciseId).toList();
+        assertThat(idsTwo).isEqualTo(idsOne);
+
+        // Két résztvevő válaszai: user1 pozíció 0 helyes -> max_points, user2
+        // pozíció 1 hibás -> 0.
+        UUID user1 = UUID.randomUUID();
+        UUID user2 = UUID.randomUUID();
+        var ex0 = readOne.exercises().get(0);
+        var ex1 = readOne.exercises().get(1);
+
+        DuelAnswerResponse correct = duelSetService.submitAnswer(
+                created.setId(), user1, 0, json(duelCorrectAnswerFor(ex0.type())));
+        assertThat(correct.position()).isEqualTo(0);
+        assertThat(correct.score()).isEqualTo(10);
+        assertThat(correct.correct()).isTrue();
+
+        DuelAnswerResponse wrong = duelSetService.submitAnswer(
+                created.setId(), user2, 1, json(duelWrongAnswerFor(ex1.type())));
+        assertThat(wrong.position()).isEqualTo(1);
+        assertThat(wrong.score()).isEqualTo(0);
+        assertThat(wrong.correct()).isFalse();
+
+        // Idempotens pontozás: ugyanaz a (set, user, position) eltérő válasszal sem
+        // pontoz újra -> az eredeti score jön vissza.
+        DuelAnswerResponse repeat = duelSetService.submitAnswer(
+                created.setId(), user1, 0, json(duelWrongAnswerFor(ex0.type())));
+        assertThat(repeat.score()).isEqualTo(10);
+        assertThat(repeat.correct()).isTrue();
+
+        // A párbaj-flow SOHA nem kezdeményez Identity pontjóváírást.
+        Mockito.verifyNoInteractions(identityPointsPort);
+    }
+
+    // (l) Idempotens létrehozás verseny valódi Postgresen: egyidejű első
+    // létrehozások ugyanarra a duelId-re -> egy duel_set sor, nincs 500.
+    @Test
+    void concurrentDuelSetCreateYieldsOneSetAndNoServerError() throws Exception {
+        UUID en = seedDuelLanguage();
+        UUID duelId = UUID.randomUUID();
+
+        int threads = 8;
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var done = new java.util.concurrent.CountDownLatch(threads);
+        var results = java.util.Collections.synchronizedList(new java.util.ArrayList<UUID>());
+        var errors = java.util.Collections.synchronizedList(new java.util.ArrayList<Throwable>());
+        for (int i = 0; i < threads; i++) {
+            pool.submit(() -> {
+                try {
+                    start.await();
+                    results.add(duelSetService.createDuelSet(duelId, en, null).setId());
+                } catch (Throwable t) {
+                    errors.add(t);
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+        start.countDown();
+        done.await();
+        pool.shutdownNow();
+
+        assertThat(errors).isEmpty();
+        assertThat(results).hasSize(threads);
+        assertThat(results.stream().distinct().toList()).hasSize(1);
+        Mockito.verifyNoInteractions(identityPointsPort);
     }
 }

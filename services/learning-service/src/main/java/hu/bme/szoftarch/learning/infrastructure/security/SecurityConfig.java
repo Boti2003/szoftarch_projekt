@@ -46,6 +46,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/api/v1/learning/health").permitAll()
+                        // A belső végpontokat NEM JWT, hanem kizárólag az
+                        // InternalApiKeyFilter (X-Internal-Api-Key) védi: itt NINCS JWT
+                        // user-kontextus (U7 duel-set — a userId a payloadból jön).
+                        .requestMatchers("/internal/v1/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
                 .addFilterBefore(

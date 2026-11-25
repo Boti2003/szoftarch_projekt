@@ -109,3 +109,31 @@ CREATE TABLE IF NOT EXISTS user_daily_progress (
     version                   BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, challenge_id)
 );
+
+-- U7: párbaj duel-set táblák (TERV 6.2). A duel_answers JSONB answer-je a JPA
+-- @JdbcTypeCode(SqlTypes.JSON) mappinggel megy; a teszt-sémában TEXT (H2 nem
+-- támogatja a natív jsonb típust), a V1 sémát tükrözve.
+CREATE TABLE IF NOT EXISTS duel_sets (
+    id               UUID PRIMARY KEY,
+    external_duel_id UUID NOT NULL UNIQUE,
+    language_id      UUID NOT NULL REFERENCES languages (id),
+    expires_at       TIMESTAMP WITH TIME ZONE,
+    created_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS duel_set_exercises (
+    duel_set_id UUID NOT NULL REFERENCES duel_sets (id) ON DELETE CASCADE,
+    position    INT  NOT NULL,
+    exercise_id UUID NOT NULL REFERENCES exercises (id),
+    PRIMARY KEY (duel_set_id, position)
+);
+
+CREATE TABLE IF NOT EXISTS duel_answers (
+    duel_set_id  UUID NOT NULL REFERENCES duel_sets (id) ON DELETE CASCADE,
+    user_id      UUID NOT NULL,
+    position     INT  NOT NULL,
+    answer       TEXT,
+    score        INT,
+    submitted_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    PRIMARY KEY (duel_set_id, user_id, position)
+);
