@@ -4,7 +4,10 @@ import java.time.Instant;
 import java.util.List;
 
 import hu.bme.szoftarch.learning.domain.model.ExerciseAttempt;
+import hu.bme.szoftarch.learning.domain.model.UserDailyProgress;
+import hu.bme.szoftarch.learning.domain.model.UserDailyProgressId;
 import hu.bme.szoftarch.learning.domain.repository.ExerciseAttemptRepository;
+import hu.bme.szoftarch.learning.domain.repository.UserDailyProgressRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,20 +35,32 @@ public class PointAwardRetryScheduler {
     private static final Limit BATCH_LIMIT = Limit.of(100);
 
     private final ExerciseAttemptRepository attemptRepository;
+    private final UserDailyProgressRepository dailyProgressRepository;
     private final PointAwardService pointAwardService;
 
     public PointAwardRetryScheduler(ExerciseAttemptRepository attemptRepository,
+            UserDailyProgressRepository dailyProgressRepository,
             PointAwardService pointAwardService) {
         this.attemptRepository = attemptRepository;
+        this.dailyProgressRepository = dailyProgressRepository;
         this.pointAwardService = pointAwardService;
     }
 
     /**
-     * Egy poll-ciklus: az esedékes pont-szándékokat feldolgozza. Minden attemptet
-     * külön tranzakcióban, hogy egy hiba ne rontsa el a köteg többi elemét.
+     * Egy poll-ciklus: az esedékes pont-szándékokat és napi bónuszokat
+     * feldolgozza. Minden elemet külön tranzakcióban, hogy egy hiba ne rontsa el
+     * a köteg többi elemét.
      */
     @Scheduled(fixedDelayString = "${learning.points.poll-delay-ms:30000}")
     public void pollDuePointAwards() {
+        pollDueExerciseAttempts();
+        pollDueDailyBonuses();
+    }
+
+    /**
+     * Az esedékes exercise-attempt pontjóváírások feldolgozása.
+     */
+    private void pollDueExerciseAttempts() {
         List<ExerciseAttempt> due = attemptRepository.findDuePointAwards(Instant.now(), BATCH_LIMIT);
         if (due.isEmpty()) {
             return;
@@ -58,6 +73,27 @@ public class PointAwardRetryScheduler {
                 // Egy sor hibája ne állítsa meg a kötegetet; a következő pollnál újra próbáljuk.
                 log.warn("Point award processing error for attemptId={}: {}",
                         attempt.getId(), e.getClass().getSimpleName());
+            }
+        }
+    }
+
+    /**
+     * Az esedékes napi bónuszok feldolgozása (TERV 5.4): ugyanaz a poller, ugyanaz
+     * a retry-szemantika; a +20 az U5 {@link PointAwardService}-en megy.
+     */
+    private void pollDueDailyBonuses() {
+        List<UserDailyProgress> due = dailyProgressRepository.findDueDailyBonuses(Instant.now(), BATCH_LIMIT);
+        if (due.isEmpty()) {
+            return;
+        }
+        log.info("Daily bonus poll: {} due progress row(s)", due.size());
+        for (UserDailyProgress progress : due) {
+            UserDailyProgressId id = progress.getId();
+            try {
+                pointAwardService.processDailyBonus(id.getUserId(), id.getChallengeId());
+            } catch (RuntimeException e) {
+                log.warn("Daily bonus processing error for userId={} challengeId={}: {}",
+                        id.getUserId(), id.getChallengeId(), e.getClass().getSimpleName());
             }
         }
     }

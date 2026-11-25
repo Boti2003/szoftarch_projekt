@@ -30,6 +30,15 @@ public interface ExerciseAttemptRepository extends JpaRepository<ExerciseAttempt
     List<ExerciseAttempt> findByUserIdAndExerciseId(UUID userId, UUID exerciseId);
 
     /**
+     * @return a felhasználó összes beküldése egy adott kontextusban és
+     *     kontextus-azonosítóra (U6: a napi kihívás DAILY beküldései a
+     *     {@code correct_count} újraszámolásához és az idempotens napi
+     *     feladat-beküldés pozíció-számolásához)
+     */
+    List<ExerciseAttempt> findByUserIdAndContextAndContextId(UUID userId,
+            hu.bme.szoftarch.learning.domain.model.AttemptContext context, UUID contextId);
+
+    /**
      * @return a felhasználó beküldései a megadott feladatokra (a lecke legjobb
      *     pontarányainak aggregálásához)
      */

@@ -9,17 +9,26 @@ import java.util.UUID;
 
 import hu.bme.szoftarch.learning.api.ConflictException;
 import hu.bme.szoftarch.learning.api.dto.AttemptResponse;
+import hu.bme.szoftarch.learning.api.dto.DailyChallengeTodayResponse;
 import hu.bme.szoftarch.learning.api.dto.LessonListItemResponse;
 import hu.bme.szoftarch.learning.application.AttemptService;
+import hu.bme.szoftarch.learning.application.DailyChallengeService;
 import hu.bme.szoftarch.learning.application.EnrollmentService;
 import hu.bme.szoftarch.learning.application.LessonService;
+import hu.bme.szoftarch.learning.application.PointAwardService;
+import hu.bme.szoftarch.learning.domain.daily.BusinessClock;
 import hu.bme.szoftarch.learning.domain.model.ExerciseAttempt;
 import hu.bme.szoftarch.learning.domain.model.LessonProgress;
 import hu.bme.szoftarch.learning.domain.model.LessonProgressId;
 import hu.bme.szoftarch.learning.domain.model.PointAwardStatus;
 import hu.bme.szoftarch.learning.domain.model.ProgressStatus;
+import hu.bme.szoftarch.learning.domain.model.UserDailyProgress;
+import hu.bme.szoftarch.learning.domain.model.UserDailyProgressId;
+import hu.bme.szoftarch.learning.domain.port.AwardPointsResult;
+import hu.bme.szoftarch.learning.domain.port.IdentityPointsPort;
 import hu.bme.szoftarch.learning.domain.repository.ExerciseAttemptRepository;
 import hu.bme.szoftarch.learning.domain.repository.LessonProgressRepository;
+import hu.bme.szoftarch.learning.domain.repository.UserDailyProgressRepository;
 import hu.bme.szoftarch.learning.support.ExerciseSamples;
 import hu.bme.szoftarch.learning.support.TestLearningData;
 
@@ -28,12 +37,15 @@ import tools.jackson.databind.ObjectMapper;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -81,21 +93,34 @@ class LearningPostgresIT {
     private final AttemptService attemptService;
     private final LessonService lessonService;
     private final EnrollmentService enrollmentService;
+    private final DailyChallengeService dailyChallengeService;
+    private final PointAwardService pointAwardService;
     private final ExerciseAttemptRepository attemptRepository;
     private final LessonProgressRepository lessonProgressRepository;
+    private final UserDailyProgressRepository dailyProgressRepository;
+    private final BusinessClock businessClock;
     private final TestLearningData data;
     private final ObjectMapper objectMapper;
 
+    @MockitoBean
+    private IdentityPointsPort identityPointsPort;
+
     @Autowired
     LearningPostgresIT(AttemptService attemptService, LessonService lessonService,
-            EnrollmentService enrollmentService, ExerciseAttemptRepository attemptRepository,
-            LessonProgressRepository lessonProgressRepository, TestLearningData data,
-            ObjectMapper objectMapper) {
+            EnrollmentService enrollmentService, DailyChallengeService dailyChallengeService,
+            PointAwardService pointAwardService, ExerciseAttemptRepository attemptRepository,
+            LessonProgressRepository lessonProgressRepository,
+            UserDailyProgressRepository dailyProgressRepository, BusinessClock businessClock,
+            TestLearningData data, ObjectMapper objectMapper) {
         this.attemptService = attemptService;
         this.lessonService = lessonService;
         this.enrollmentService = enrollmentService;
+        this.dailyChallengeService = dailyChallengeService;
+        this.pointAwardService = pointAwardService;
         this.attemptRepository = attemptRepository;
         this.lessonProgressRepository = lessonProgressRepository;
+        this.dailyProgressRepository = dailyProgressRepository;
+        this.businessClock = businessClock;
         this.data = data;
         this.objectMapper = objectMapper;
     }
@@ -322,5 +347,211 @@ class LearningPostgresIT {
         // ezt a DataIntegrityViolationException-t ConflictException (409) válasszá fordítja.
         assertThatThrownBy(() -> enrollmentService.activateLanguage(userId, de))
                 .isInstanceOf(ConflictException.class);
+    }
+
+    // ========================= U6 napi kihívás ============================
+
+    private static final String MULTIPLE_CHOICE_CORRECT = "{\"selectedOptionIds\": [\"b\"]}";
+    private static final String MATCHING_FULL_CORRECT =
+            "{\"pairs\": [{\"leftId\": \"l1\", \"rightId\": \"r1\"}, {\"leftId\": \"l2\", \"rightId\": \"r2\"}]}";
+
+    private UUID seedDailyLanguage() {
+        UUID en = data.language("en", "English", true);
+        UUID lesson = data.lesson(en, 1, "Lesson 1");
+        // 3 duel-eligible auto feladat + 1 nem-duel és 1 AI, hogy a szűrés is lásson zajt.
+        data.exerciseDuelEligible(lesson, "TRUE_FALSE", 1,
+                ExerciseSamples.TRUE_FALSE.payloadJson(), ExerciseSamples.TRUE_FALSE.solutionJson(), 10);
+        data.exerciseDuelEligible(lesson, "MULTIPLE_CHOICE", 2,
+                ExerciseSamples.MULTIPLE_CHOICE.payloadJson(), ExerciseSamples.MULTIPLE_CHOICE.solutionJson(), 10);
+        data.exerciseDuelEligible(lesson, "MATCHING", 3,
+                ExerciseSamples.MATCHING.payloadJson(), ExerciseSamples.MATCHING.solutionJson(), 10);
+        // Nem duel-eligible (nem jelölt) és AI-típus duel-eligible-ként (nem auto -> kizárva).
+        data.exerciseScorable(lesson, "ODD_ONE_OUT", 4,
+                ExerciseSamples.ODD_ONE_OUT.payloadJson(), ExerciseSamples.ODD_ONE_OUT.solutionJson(), 10, false);
+        data.exerciseDuelEligible(lesson, "TRANSLATION", 5,
+                ExerciseSamples.TRANSLATION.payloadJson(), null, 10);
+        return en;
+    }
+
+    private String correctAnswerFor(
+            hu.bme.szoftarch.learning.domain.model.ExerciseType type) {
+        return switch (type) {
+            case TRUE_FALSE -> CORRECT_TRUE_FALSE;
+            case MULTIPLE_CHOICE -> MULTIPLE_CHOICE_CORRECT;
+            case MATCHING -> MATCHING_FULL_CORRECT;
+            default -> throw new IllegalStateException("unexpected daily type " + type);
+        };
+    }
+
+    // (f) Determinisztikus kiválasztás két felhasználó nézőpontból: ugyanaz a 3
+    // duel-eligible auto feladat, ugyanabban a sorrendben.
+    @Test
+    void dailySelectionIsDeterministicAcrossUsers() {
+        UUID en = seedDailyLanguage();
+        UUID userOne = UUID.randomUUID();
+        UUID userTwo = UUID.randomUUID();
+
+        DailyChallengeTodayResponse first = dailyChallengeService.getToday(userOne, en);
+        DailyChallengeTodayResponse second = dailyChallengeService.getToday(userTwo, en);
+
+        assertThat(first.exercises()).hasSize(3);
+        // Mind a 3 feladat auto + duel-eligible (a TRANSLATION és a nem-duel kizárva).
+        assertThat(first.exercises()).allSatisfy(e -> assertThat(e.duelEligible()).isTrue());
+        List<UUID> firstIds = first.exercises().stream()
+                .map(hu.bme.szoftarch.learning.api.dto.ExercisePresentationResponse::exerciseId).toList();
+        List<UUID> secondIds = second.exercises().stream()
+                .map(hu.bme.szoftarch.learning.api.dto.ExercisePresentationResponse::exerciseId).toList();
+        assertThat(secondIds).isEqualTo(firstIds);
+        // Egy challenge sor jött létre a (date, languageId)-re.
+        assertThat(first.challengeId()).isEqualTo(second.challengeId());
+    }
+
+    // (g) Teljesítés: 3 beküldve + >=2 helyes -> COMPLETED; <2 helyes -> nem.
+    @Test
+    void dailyCompletionRequiresThreeSubmittedAndAtLeastTwoCorrect() {
+        UUID en = seedDailyLanguage();
+        UUID userId = UUID.randomUUID();
+        DailyChallengeTodayResponse today = dailyChallengeService.getToday(userId, en);
+
+        // Két helyes, egy helytelen (MATCHING rossz pár -> 0.0).
+        int idx = 0;
+        for (var ex : today.exercises()) {
+            String answer = idx < 2 ? correctAnswerFor(ex.type())
+                    : "{\"pairs\": [{\"leftId\": \"l1\", \"rightId\": \"r2\"}]}";
+            dailyChallengeService.submit(userId, en, ex.exerciseId(), UUID.randomUUID().toString(), json(answer));
+            idx++;
+        }
+
+        UserDailyProgress progress = dailyProgressRepository
+                .findById(new UserDailyProgressId(userId, today.challengeId())).orElseThrow();
+        assertThat(progress.getStatus()).isEqualTo(ProgressStatus.COMPLETED);
+        assertThat(progress.getCorrectCount()).isGreaterThanOrEqualTo(2);
+        assertThat(progress.getBonusAwardStatus()).isEqualTo(PointAwardStatus.PENDING);
+
+        // Egy másik user: csak egy helyes -> nem teljesül.
+        UUID otherUser = UUID.randomUUID();
+        for (var ex : today.exercises()) {
+            String answer = ex.type() == hu.bme.szoftarch.learning.domain.model.ExerciseType.TRUE_FALSE
+                    ? CORRECT_TRUE_FALSE : WRONG_TRUE_FALSE_OR_WRONG(ex.type());
+            dailyChallengeService.submit(otherUser, en, ex.exerciseId(), UUID.randomUUID().toString(), json(answer));
+        }
+        UserDailyProgress otherProgress = dailyProgressRepository
+                .findById(new UserDailyProgressId(otherUser, today.challengeId())).orElseThrow();
+        assertThat(otherProgress.getStatus()).isNotEqualTo(ProgressStatus.COMPLETED);
+        assertThat(otherProgress.getBonusAwardStatus()).isEqualTo(PointAwardStatus.NOT_APPLICABLE);
+    }
+
+    private String WRONG_TRUE_FALSE_OR_WRONG(hu.bme.szoftarch.learning.domain.model.ExerciseType type) {
+        return switch (type) {
+            case MULTIPLE_CHOICE -> "{\"selectedOptionIds\": [\"a\"]}";
+            case MATCHING -> "{\"pairs\": [{\"leftId\": \"l1\", \"rightId\": \"r2\"}]}";
+            default -> WRONG_TRUE_FALSE;
+        };
+    }
+
+    // (h) Párhuzamos bónusz: egyidejű bónusz-feldolgozás az optimista zár +
+    // idempotenciakulcs miatt csak EGYSZER ír +20-at. A párhuzamos szálak
+    // ugyanazt a determinisztikus kulcsot küldik (Identity ezzel deduplikál), és
+    // a user_daily_progress-be a +20 pontosan egyszer kerül jóváírásra: az
+    // optimista @Version miatt csak egy commit nyer. A bónusz az IdentityPointsPort-on megy.
+    @Test
+    void concurrentDailyBonusAwardsExactlyOnce() throws Exception {
+        UUID en = seedDailyLanguage();
+        UUID userId = UUID.randomUUID();
+        Mockito.when(identityPointsPort.award(Mockito.any())).thenReturn(AwardPointsResult.AWARDED);
+
+        DailyChallengeTodayResponse today = dailyChallengeService.getToday(userId, en);
+        for (var ex : today.exercises()) {
+            dailyChallengeService.submit(userId, en, ex.exerciseId(), UUID.randomUUID().toString(),
+                    json(correctAnswerFor(ex.type())));
+        }
+        UUID challengeId = today.challengeId();
+        String expectedKey = "daily:" + userId + ":" + businessClock.today() + ":bonus";
+
+        int threads = 8;
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var done = new java.util.concurrent.CountDownLatch(threads);
+        for (int i = 0; i < threads; i++) {
+            pool.submit(() -> {
+                try {
+                    start.await();
+                    pointAwardService.processDailyBonus(userId, challengeId);
+                } catch (RuntimeException | InterruptedException ignored) {
+                    // Optimista zár ütközés megengedett a vesztő szálon; nem dupla jóváírás.
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+        start.countDown();
+        done.await();
+        pool.shutdownNow();
+
+        // A párhuzamos küldések mind UGYANAZT az idempotenciakulcsot használták,
+        // így az Identity deduplikál — a +20 csak egyszer számít. Az optimista zár
+        // miatt a user_daily_progress-be pontosan egyszer kerül AWARDED + bonus_awarded.
+        ArgumentCaptor<hu.bme.szoftarch.learning.domain.port.AwardPointsCommand> captor =
+                ArgumentCaptor.forClass(hu.bme.szoftarch.learning.domain.port.AwardPointsCommand.class);
+        Mockito.verify(identityPointsPort, Mockito.atLeastOnce()).award(captor.capture());
+        assertThat(captor.getAllValues()).allSatisfy(c -> {
+            assertThat(c.idempotencyKey()).isEqualTo(expectedKey);
+            assertThat(c.points()).isEqualTo(20);
+        });
+
+        UserDailyProgress progress = dailyProgressRepository
+                .findById(new UserDailyProgressId(userId, challengeId)).orElseThrow();
+        assertThat(progress.isBonusAwarded()).isTrue();
+        assertThat(progress.getBonusAwardStatus()).isEqualTo(PointAwardStatus.AWARDED);
+        // A verzió egyszer emelkedett a PENDING -> AWARDED átmenettel (egy nyertes commit):
+        // a bónusz sor a determinisztikus kulccsal egyetlen jóváírást jelent.
+        assertThat(progress.getDailyBonusAttemptCount()).isEqualTo(0);
+    }
+
+    // (i) Lazy létrehozás verseny: egyidejű első GET-ek a (date, languageId)-re ->
+    // egy daily_challenges sor, nincs 500.
+    @Test
+    void concurrentLazyCreateYieldsOneChallengeAndNoServerError() throws Exception {
+        UUID en = seedDailyLanguage();
+
+        int threads = 8;
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var done = new java.util.concurrent.CountDownLatch(threads);
+        var results = java.util.Collections.synchronizedList(new java.util.ArrayList<UUID>());
+        var errors = java.util.Collections.synchronizedList(new java.util.ArrayList<Throwable>());
+        for (int i = 0; i < threads; i++) {
+            pool.submit(() -> {
+                try {
+                    start.await();
+                    results.add(dailyChallengeService.getToday(UUID.randomUUID(), en).challengeId());
+                } catch (Throwable t) {
+                    errors.add(t);
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+        start.countDown();
+        done.await();
+        pool.shutdownNow();
+
+        assertThat(errors).isEmpty();
+        // Minden hívó UGYANAZT a challenge id-t kapta (egy sor jött létre).
+        assertThat(results).hasSize(threads);
+        assertThat(results.stream().distinct().toList()).hasSize(1);
+    }
+
+    // (j) Budapesti üzleti nap: a challenge_date a BusinessClock által adott
+    // budapesti nap, a mai GET erre a dátumra hozza létre a sort.
+    @Test
+    void dailyChallengeDateFollowsBudapestBusinessDay() {
+        UUID en = seedDailyLanguage();
+        UUID userId = UUID.randomUUID();
+
+        DailyChallengeTodayResponse today = dailyChallengeService.getToday(userId, en);
+
+        assertThat(today.date()).isEqualTo(businessClock.today());
+        assertThat(businessClock.zone()).isEqualTo(java.time.ZoneId.of("Europe/Budapest"));
     }
 }

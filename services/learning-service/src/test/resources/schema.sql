@@ -77,3 +77,35 @@ CREATE TABLE IF NOT EXISTS exercise_attempts (
     submitted_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     idempotency_key       VARCHAR(255) NOT NULL UNIQUE
 );
+
+-- U6: napi kihívás táblák (TERV 6.2). A daily táblák nem tartalmaznak JSONB-t,
+-- ezért H2-kompatibilis típusokkal, a V1 + V4 sémát tükrözve.
+CREATE TABLE IF NOT EXISTS daily_challenges (
+    id             UUID PRIMARY KEY,
+    challenge_date DATE NOT NULL,
+    language_id    UUID NOT NULL REFERENCES languages (id),
+    created_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    UNIQUE (challenge_date, language_id)
+);
+
+CREATE TABLE IF NOT EXISTS daily_challenge_exercises (
+    challenge_id UUID NOT NULL REFERENCES daily_challenges (id) ON DELETE CASCADE,
+    position     INT  NOT NULL,
+    exercise_id  UUID NOT NULL REFERENCES exercises (id),
+    PRIMARY KEY (challenge_id, position)
+);
+
+CREATE TABLE IF NOT EXISTS user_daily_progress (
+    user_id                   UUID NOT NULL,
+    challenge_id              UUID NOT NULL REFERENCES daily_challenges (id),
+    status                    VARCHAR(20) NOT NULL DEFAULT 'NOT_STARTED',
+    correct_count             INT NOT NULL DEFAULT 0,
+    bonus_awarded             BOOLEAN NOT NULL DEFAULT FALSE,
+    bonus_award_status        VARCHAR(20) NOT NULL DEFAULT 'NOT_APPLICABLE',
+    bonus_idempotency_key     VARCHAR(255),
+    daily_bonus_attempt_count INT NOT NULL DEFAULT 0,
+    next_retry_at             TIMESTAMP WITH TIME ZONE,
+    completed_at              TIMESTAMP WITH TIME ZONE,
+    version                   BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, challenge_id)
+);

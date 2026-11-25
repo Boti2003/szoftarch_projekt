@@ -17,6 +17,8 @@ spring:
 learning:
   identity:
     url: http://identity.test.invalid
+  daily:
+    business-timezone: Europe/Budapest
   points:
     scheduler-enabled: false
   security:

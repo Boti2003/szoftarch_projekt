@@ -90,6 +90,17 @@ public class ExerciseService {
                 .orElseThrow(() -> new NotFoundException(
                         "exercise_not_found", "Exercise not found or not available"));
 
+        return toPresentation(exercise);
+    }
+
+    /**
+     * Egy már betöltött {@link Exercise} prezentációja a {@code payload} alapján,
+     * solution nélkül (U6 újrahasznosítja a napi kihívás feladatsorához). A
+     * leképezés kizárólag a payload mezőit másolja; megoldásadat egyik ágon sem
+     * kerül be (TERV 5.2).
+     */
+    @Transactional(readOnly = true)
+    public ExercisePresentationResponse toPresentation(Exercise exercise) {
         ExercisePayload payload = contentCodec.readPayload(exercise.getType(), exercise.getPayload());
         ExerciseContent content = toContent(payload);
 

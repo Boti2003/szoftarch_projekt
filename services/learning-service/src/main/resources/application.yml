@@ -35,6 +35,8 @@ management:
 learning:
   identity:
     url: ${IDENTITY_URL:http://localhost:8080}
+  daily:
+    business-timezone: ${BUSINESS_TIMEZONE:Europe/Budapest}
   points:
     poll-delay-ms: ${POINT_POLL_DELAY_MS:30000}
     scheduler-enabled: ${POINT_SCHEDULER_ENABLED:true}

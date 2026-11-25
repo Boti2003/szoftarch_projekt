@@ -20,6 +20,9 @@ public class TestLearningData {
 
     public void deleteAll() {
         jdbc.update("DELETE FROM exercise_attempts");
+        jdbc.update("DELETE FROM user_daily_progress");
+        jdbc.update("DELETE FROM daily_challenge_exercises");
+        jdbc.update("DELETE FROM daily_challenges");
         jdbc.update("DELETE FROM exercises");
         jdbc.update("DELETE FROM lesson_progress");
         jdbc.update("DELETE FROM user_language_enrollments");
@@ -89,6 +92,16 @@ public class TestLearningData {
             String solutionJson, int maxPoints, boolean requiredForCompletion) {
         return exercise(lessonId, type, "EASY", orderIndex, "Prompt for " + type,
                 payloadJson, solutionJson, maxPoints, requiredForCompletion, false, true);
+    }
+
+    /**
+     * Beszúr egy napi kihívásra alkalmas (duel-eligible), auto-kiértékelhető
+     * feladatot érvényes payload/solution JSON-nel (U6 teszt-seed).
+     */
+    public UUID exerciseDuelEligible(UUID lessonId, String type, int orderIndex, String payloadJson,
+            String solutionJson, int maxPoints) {
+        return exercise(lessonId, type, "EASY", orderIndex, "Prompt for " + type,
+                payloadJson, solutionJson, maxPoints, true, true, true);
     }
 
     /**
