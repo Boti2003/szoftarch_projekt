@@ -28,7 +28,10 @@ import hu.bme.szoftarch.learning.infrastructure.persistence.ExerciseContentCodec
 
 import tools.jackson.databind.JsonNode;
 
+import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -38,7 +41,11 @@ import org.springframework.transaction.annotation.Transactional;
  * az első helyes megoldáshoz ELŐKÉSZÍTI a pontjóváírást.
  *
  * <p><strong>Idempotencia:</strong> azonos {@code Idempotency-Key} esetén a
- * tárolt eredményt adja vissza, új sor és új pontszándék nélkül.</p>
+ * tárolt eredményt adja vissza, új sor és új pontszándék nélkül. Egyidejű
+ * azonos kulcsú beküldésnél (U4 follow-up #1) a pre-check után is ütközhet a
+ * {@code exercise_attempts.idempotency_key} unique megszorítás; a vesztes
+ * beküldés tranzakciója visszagördül, és a tárolt (nyertes) eredményt adjuk
+ * vissza egy FRISS tranzakcióban olvasva — nem 500, nem dupla sor/pontszándék.</p>
  *
  * <p><strong>Kritikus (TERV 5.2):</strong> a helyes megoldás sem a válaszban,
  * sem logban nem jelenik meg; a {@code userId} kizárólag a JWT {@code sub}
@@ -52,21 +59,27 @@ public class AttemptService {
     private final LessonProgressRepository lessonProgressRepository;
     private final ExerciseContentCodec contentCodec;
     private final EvaluatorRegistry evaluatorRegistry;
+    private final AttemptService self;
 
     public AttemptService(ExerciseRepository exerciseRepository,
             ExerciseAttemptRepository attemptRepository,
             LessonProgressRepository lessonProgressRepository,
             ExerciseContentCodec contentCodec,
-            EvaluatorRegistry evaluatorRegistry) {
+            EvaluatorRegistry evaluatorRegistry,
+            @Lazy AttemptService self) {
         this.exerciseRepository = exerciseRepository;
         this.attemptRepository = attemptRepository;
         this.lessonProgressRepository = lessonProgressRepository;
         this.contentCodec = contentCodec;
         this.evaluatorRegistry = evaluatorRegistry;
+        this.self = self;
     }
 
     /**
-     * Beküld egy választ egy feladatra, kiértékeli és elmenti.
+     * Beküld egy választ egy feladatra, kiértékeli és elmenti. Orkesztrátor: a
+     * tényleges DB-munka saját tranzakcióban fut ({@link #submitInTransaction});
+     * egyidejű azonos kulcsnál a visszagördülő tranzakció után a tárolt eredményt
+     * egy külön olvasó tranzakcióban adja vissza.
      *
      * @param userId         a hitelesített felhasználó (JWT {@code sub})
      * @param exerciseId     a feladat azonosítója
@@ -74,8 +87,25 @@ public class AttemptService {
      * @param answerJson     a nyers válasz JSON
      * @return a kiértékelt eredmény (megoldás nélkül)
      */
-    @Transactional
     public AttemptResponse submit(UUID userId, UUID exerciseId, String idempotencyKey, JsonNode answerJson) {
+        try {
+            return self.submitInTransaction(userId, exerciseId, idempotencyKey, answerJson);
+        } catch (DataIntegrityViolationException e) {
+            // Egyidejű azonos Idempotency-Key: a vesztő tranzakció visszagördült.
+            // A nyertes által commitolt sort friss tranzakcióban olvassuk vissza.
+            return self.findStoredResult(idempotencyKey)
+                    .orElseThrow(() -> e);
+        }
+    }
+
+    /**
+     * A beküldés DB-munkája egyetlen tranzakcióban. Unique ütközésnél a
+     * {@link DataIntegrityViolationException} kibukik (a tranzakció visszagördül),
+     * és a hívó {@link #submit} a tárolt eredménnyel válaszol.
+     */
+    @Transactional
+    public AttemptResponse submitInTransaction(UUID userId, UUID exerciseId, String idempotencyKey,
+            JsonNode answerJson) {
         // (a) Idempotencia: azonos kulcsra a tárolt eredmény, új sor/pontszándék nélkül.
         var existing = attemptRepository.findByIdempotencyKey(idempotencyKey);
         if (existing.isPresent()) {
@@ -109,18 +139,29 @@ public class AttemptService {
             pointIdempotencyKey = null;
         }
 
-        // (e) Beküldés perzisztálása.
+        // (e) Beküldés perzisztálása. A saveAndFlush a tranzakción belül azonnal
+        // kiváltja az esetleges unique ütközést, amit a hívó orkesztrátor kezel.
         Instant now = Instant.now();
         ExerciseAttempt attempt = new ExerciseAttempt(
                 UUID.randomUUID(), userId, exerciseId, AttemptContext.LESSON, exercise.getLessonId(),
                 answerJson, result.scoreRatio(), result.correct(), result.feedback(),
                 pointAwardStatus, pointIdempotencyKey, now, idempotencyKey);
-        attemptRepository.save(attempt);
+        attemptRepository.saveAndFlush(attempt);
 
         // (g) Leckehaladás frissítése az optimista zárra támaszkodva.
         updateLessonProgress(userId, exercise.getLessonId(), now);
 
         return toResponse(attempt);
+    }
+
+    /**
+     * A tárolt beküldés eredménye az idempotencia-kulcs alapján, FRISS
+     * tranzakcióban (az ütközés utáni visszaolvasáshoz). Új tranzakció kell,
+     * mert a vesztő beküldés eredeti tranzakciója már visszagördült.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
+    public java.util.Optional<AttemptResponse> findStoredResult(String idempotencyKey) {
+        return attemptRepository.findByIdempotencyKey(idempotencyKey).map(AttemptService::toResponse);
     }
 
     /**

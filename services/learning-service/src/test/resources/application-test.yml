@@ -15,6 +15,10 @@ spring:
     enabled: false
 
 learning:
+  identity:
+    url: http://identity.test.invalid
+  points:
+    scheduler-enabled: false
   security:
     jwt:
       issuer: szoftarch-nyelvtanulo

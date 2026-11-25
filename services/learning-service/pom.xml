@@ -86,6 +86,17 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- WireMock a kimenő Identity adapter (IdentityPointsClient) tesztjéhez.
+             A standalone (shaded) jar saját Jettyt + Jacksont hoz, így NEM ütközik
+             a projekt Jackson 3 (tools.jackson) futásidejével. A Spring Boot BOM nem
+             menedzseli, ezért explicit verzió. -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>3.13.1</version>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Testcontainers (2.0: testcontainers- prefixes artefakt-azonosítók) a valódi
              PostgreSQL integrációs teszthez (LearningPostgresIT). Csak teszt scope; az
              éles (nem-teszt) classpathon nincs Testcontainers függőség. -->

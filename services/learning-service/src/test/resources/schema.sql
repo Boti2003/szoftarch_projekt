@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS exercise_attempts (
     feedback              TEXT,
     point_award_status    VARCHAR(20) NOT NULL DEFAULT 'NOT_APPLICABLE',
     point_idempotency_key VARCHAR(255),
+    point_attempt_count   INT NOT NULL DEFAULT 0,
     next_retry_at         TIMESTAMP WITH TIME ZONE,
     submitted_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     idempotency_key       VARCHAR(255) NOT NULL UNIQUE

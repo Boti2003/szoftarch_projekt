@@ -33,6 +33,11 @@ management:
       show-details: always
 
 learning:
+  identity:
+    url: ${IDENTITY_URL:http://localhost:8080}
+  points:
+    poll-delay-ms: ${POINT_POLL_DELAY_MS:30000}
+    scheduler-enabled: ${POINT_SCHEDULER_ENABLED:true}
   security:
     jwt:
       issuer: ${JWT_ISSUER:szoftarch-nyelvtanulo}

@@ -236,6 +236,53 @@ class LearningPostgresIT {
         assertThat(attempts.getFirst().getPointAwardStatus()).isEqualTo(PointAwardStatus.PENDING);
     }
 
+    // (c') U4 follow-up #1: egyidejű azonos Idempotency-Key -> egy attempt, a
+    // tárolt eredmény jön vissza, NINCS 500. A pre-check (findByIdempotencyKey)
+    // alatt mindkét szál átcsúszhat, ezért a második INSERT a unique
+    // megszorításba ütközik; ezt az AttemptService elfogja és a tárolt sort adja.
+    @Test
+    void concurrentSameKeySubmitYieldsOneAttemptAndNoServerError() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID en = data.language("en", "English", true);
+        UUID lesson = data.lesson(en, 1, "Lesson 1");
+        UUID exercise = data.exerciseScorable(lesson, "TRUE_FALSE", 1,
+                ExerciseSamples.TRUE_FALSE.payloadJson(), ExerciseSamples.TRUE_FALSE.solutionJson(), 10, true);
+        String key = UUID.randomUUID().toString();
+
+        int threads = 8;
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var results = java.util.Collections.synchronizedList(new java.util.ArrayList<AttemptResponse>());
+        var errors = java.util.Collections.synchronizedList(new java.util.ArrayList<Throwable>());
+        var done = new java.util.concurrent.CountDownLatch(threads);
+
+        for (int i = 0; i < threads; i++) {
+            pool.submit(() -> {
+                try {
+                    start.await();
+                    results.add(attemptService.submit(userId, exercise, key, json(CORRECT_TRUE_FALSE)));
+                } catch (Throwable t) {
+                    errors.add(t);
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+        start.countDown();
+        done.await();
+        pool.shutdownNow();
+
+        // Egyetlen kivétel sincs (nincs 500-at okozó DataIntegrityViolation).
+        assertThat(errors).isEmpty();
+        // Pontosan egy attempt sor jött létre.
+        List<ExerciseAttempt> attempts = attemptRepository.findByUserIdAndExerciseId(userId, exercise);
+        assertThat(attempts).hasSize(1);
+        UUID storedId = attempts.getFirst().getId();
+        // Minden hívó UGYANAZT a tárolt eredményt kapta vissza.
+        assertThat(results).hasSize(threads);
+        assertThat(results).allSatisfy(r -> assertThat(r.attemptId()).isEqualTo(storedId));
+    }
+
     // (d) Optimista zár: két elavult verziójú progress-írás közül a második 409.
     @Test
     void staleProgressWriteMapsToOptimisticLockConflict() {

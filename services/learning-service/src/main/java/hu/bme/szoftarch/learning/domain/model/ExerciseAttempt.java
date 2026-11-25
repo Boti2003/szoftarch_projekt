@@ -66,6 +66,9 @@ public class ExerciseAttempt {
     @Column(name = "point_idempotency_key")
     private String pointIdempotencyKey;
 
+    @Column(name = "point_attempt_count", nullable = false)
+    private int pointAttemptCount;
+
     @Column(name = "next_retry_at")
     private Instant nextRetryAt;
 
@@ -93,6 +96,7 @@ public class ExerciseAttempt {
         this.feedback = feedback;
         this.pointAwardStatus = pointAwardStatus;
         this.pointIdempotencyKey = pointIdempotencyKey;
+        this.pointAttemptCount = 0;
         this.submittedAt = submittedAt;
         this.idempotencyKey = idempotencyKey;
     }
@@ -141,6 +145,10 @@ public class ExerciseAttempt {
         return pointIdempotencyKey;
     }
 
+    public int getPointAttemptCount() {
+        return pointAttemptCount;
+    }
+
     public Instant getNextRetryAt() {
         return nextRetryAt;
     }
@@ -151,5 +159,36 @@ public class ExerciseAttempt {
 
     public String getIdempotencyKey() {
         return idempotencyKey;
+    }
+
+    /**
+     * A pontjóváírás sikerült: {@code AWARDED} állapot, nincs több retry.
+     */
+    public void markAwarded() {
+        this.pointAwardStatus = PointAwardStatus.AWARDED;
+        this.nextRetryAt = null;
+    }
+
+    /**
+     * Újrapróbálható hiba (5xx / timeout / hálózat, TERV 7.8): a próbálkozások
+     * számát növeli, az állapotot {@code FAILED_RETRYABLE}-re állítja és beállítja
+     * a következő próbálkozás idejét. A {@code nextRetryAt == null} (a 3. hiba
+     * után) azt jelenti, hogy a poller a {@code next_retry_at <= now} feltétellel
+     * már nem választja ki — így az automatikus retry korlátozott.
+     */
+    public void markRetryable(Instant nextRetryAt) {
+        this.pointAttemptCount++;
+        this.pointAwardStatus = PointAwardStatus.FAILED_RETRYABLE;
+        this.nextRetryAt = nextRetryAt;
+    }
+
+    /**
+     * Nem újrapróbálható hiba (4xx, pl. validáció): {@code FAILED_RETRYABLE}
+     * állapot {@code nextRetryAt == null}-lal, így a poller nem próbálkozik újra.
+     */
+    public void markNonRetryable() {
+        this.pointAttemptCount++;
+        this.pointAwardStatus = PointAwardStatus.FAILED_RETRYABLE;
+        this.nextRetryAt = null;
     }
 }
