@@ -8,6 +8,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import hu.bme.szoftarch.learning.api.ConflictException;
 import hu.bme.szoftarch.learning.api.NotFoundException;
 import hu.bme.szoftarch.learning.api.dto.EnrollmentResponse;
 import hu.bme.szoftarch.learning.api.dto.EnrollmentsResponse;
@@ -17,6 +18,7 @@ import hu.bme.szoftarch.learning.domain.model.UserLanguageEnrollmentId;
 import hu.bme.szoftarch.learning.domain.repository.LanguageRepository;
 import hu.bme.szoftarch.learning.domain.repository.UserLanguageEnrollmentRepository;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,6 +65,8 @@ public class EnrollmentService {
      * inaktív. Fenntartja az egy aktív nyelv invariánst.
      *
      * @throws NotFoundException ha a nyelv nem létezik vagy nem elérhető
+     * @throws ConflictException ha egy konkurens aktiválás megsérti a
+     *         {@code uq_active_enrollment_per_user} parciális unique indexet
      */
     @Transactional
     public void activateLanguage(UUID userId, UUID languageId) {
@@ -81,7 +85,12 @@ public class EnrollmentService {
         if (!targetExists) {
             enrollments.add(new UserLanguageEnrollment(userId, language.getId(), true, Instant.now()));
         }
-        enrollmentRepository.saveAll(enrollments);
+        try {
+            enrollmentRepository.saveAllAndFlush(enrollments);
+        } catch (DataIntegrityViolationException ex) {
+            throw new ConflictException("active_enrollment_conflict",
+                    "Another active language was set concurrently; refresh and retry");
+        }
     }
 
     private Map<UUID, Language> loadLanguages(List<UserLanguageEnrollment> enrollments) {
