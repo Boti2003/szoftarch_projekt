@@ -28,7 +28,7 @@ ai:
     base-url: ${AI_OPENAI_BASE_URL:https://api.openai.com/v1}
     api-key: ${AI_OPENAI_API_KEY:}
     model: ${AI_OPENAI_MODEL:gpt-4o-mini}
-  request-timeout-seconds: ${AI_REQUEST_TIMEOUT_SECONDS:20}
+    request-timeout-seconds: ${AI_REQUEST_TIMEOUT_SECONDS:20}
 
 
 management:
