@@ -82,6 +82,11 @@ services:
       IDENTITY_URL: http://identity-service:8080
       AI_URL: http://ai-service:8080
       BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE}
+      JWT_PUBLIC_KEY_PATH: file:/run/secrets/jwt-public.pem
+    volumes:
+      # Least privilege: a nem-Identity service-ek CSAK a publikus kulcsot kapják
+      # (az aláírás ellenőrzéséhez). A privát kulcs kizárólag az Identity-é.
+      - ./secrets/jwt-public.pem:/run/secrets/jwt-public.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
