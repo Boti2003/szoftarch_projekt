@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.time.LocalDate;
 import java.util.stream.Collectors;
 
 import hu.bme.szoftarch.learning.domain.exercise.ErrorFindingAnswer;
@@ -23,6 +25,7 @@ import hu.bme.szoftarch.learning.domain.exercise.OddOneOutSolution;
 import hu.bme.szoftarch.learning.domain.exercise.TrueFalseAnswer;
 import hu.bme.szoftarch.learning.domain.exercise.TrueFalseSolution;
 import hu.bme.szoftarch.learning.domain.exercise.UserAnswer;
+import hu.bme.szoftarch.learning.domain.daily.DailyChallengeSelection;
 import hu.bme.szoftarch.learning.domain.model.Difficulty;
 import hu.bme.szoftarch.learning.domain.model.ExerciseType;
 import hu.bme.szoftarch.learning.domain.port.AiEvaluationPort;
@@ -89,6 +92,10 @@ class SeedMigrationIT {
             Set.of("MULTIPLE_CHOICE", "TRUE_FALSE", "MATCHING", "ODD_ONE_OUT", "ERROR_FINDING");
     private static final Set<String> AI_TYPES = Set.of("TRANSLATION", "AI_SCENARIO");
 
+    // A seed nyelvek fix UUID-jai (V6 angol, V7 német).
+    private static final String EN_LANGUAGE_ID = "00000000-0000-0000-0000-0000000000e0";
+    private static final String DE_LANGUAGE_ID = "00000000-0000-0000-0000-0000000000de";
+
     private final JdbcTemplate jdbc;
     private final ExerciseContentCodec codec;
     private final ObjectMapper objectMapper;
@@ -109,75 +116,77 @@ class SeedMigrationIT {
         this.objectMapper = objectMapper;
     }
 
-    private record ExerciseRow(String type, String difficulty, int maxPoints, boolean required,
-            boolean duelEligible, String payload, String solution) {
+    private record ExerciseRow(String languageId, String type, String difficulty, int maxPoints,
+            boolean required, boolean duelEligible, String payload, String solution) {
     }
 
-    // A seed az egyetlen angol nyelvhez (fix UUID) tartozó feladatokat tölti.
+    // A seed mindkét nyelv (angol V6 + német V7) feladatait tölti.
     private List<ExerciseRow> seededExercises() {
         return jdbc.query(
-                "SELECT e.type, e.difficulty, e.max_points, e.required_for_completion, e.duel_eligible, "
+                "SELECT l.language_id::text AS language_id, e.type, e.difficulty, e.max_points, "
+                        + "e.required_for_completion, e.duel_eligible, "
                         + "e.payload::text AS payload, e.solution::text AS solution "
                         + "FROM exercises e JOIN lessons l ON e.lesson_id = l.id "
-                        + "WHERE l.language_id = '00000000-0000-0000-0000-0000000000e0'",
-                (rs, n) -> new ExerciseRow(rs.getString("type"), rs.getString("difficulty"),
-                        rs.getInt("max_points"), rs.getBoolean("required_for_completion"),
+                        + "WHERE l.language_id IN ('" + EN_LANGUAGE_ID + "', '" + DE_LANGUAGE_ID + "')",
+                (rs, n) -> new ExerciseRow(rs.getString("language_id"), rs.getString("type"),
+                        rs.getString("difficulty"), rs.getInt("max_points"),
+                        rs.getBoolean("required_for_completion"),
                         rs.getBoolean("duel_eligible"), rs.getString("payload"), rs.getString("solution")));
     }
 
     @Test
     void seedLoadsExpectedCounts() {
+        // Két nyelv: angol (en) és német (de), mindkettő engedélyezve.
         assertThat(jdbc.queryForObject(
-                "SELECT count(*) FROM languages WHERE id = '00000000-0000-0000-0000-0000000000e0'",
+                "SELECT count(*) FROM languages WHERE id = '" + EN_LANGUAGE_ID + "' AND code = 'en'",
+                Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM languages WHERE id = '" + DE_LANGUAGE_ID + "' AND code = 'de'",
                 Integer.class)).isEqualTo(1);
 
-        List<Integer> lessonOrders = jdbc.queryForList(
+        // Angol: >=8 lecke, folytonos order_index 1-től.
+        List<Integer> enLessonOrders = jdbc.queryForList(
                 "SELECT order_index FROM lessons "
-                        + "WHERE language_id = '00000000-0000-0000-0000-0000000000e0' ORDER BY order_index",
+                        + "WHERE language_id = '" + EN_LANGUAGE_ID + "' ORDER BY order_index",
                 Integer.class);
-        assertThat(lessonOrders).containsExactly(1, 2, 3, 4);
+        assertThat(enLessonOrders).hasSizeGreaterThanOrEqualTo(8);
+        assertThat(enLessonOrders).containsExactlyElementsOf(
+                java.util.stream.IntStream.rangeClosed(1, enLessonOrders.size()).boxed().toList());
+
+        // Német: pontosan 3 lecke, order_index 1..3.
+        List<Integer> deLessonOrders = jdbc.queryForList(
+                "SELECT order_index FROM lessons "
+                        + "WHERE language_id = '" + DE_LANGUAGE_ID + "' ORDER BY order_index",
+                Integer.class);
+        assertThat(deLessonOrders).containsExactly(1, 2, 3);
 
         List<ExerciseRow> all = seededExercises();
 
-        Map<String, Long> byLessonAuto = jdbc.query(
-                "SELECT l.order_index AS oi, count(*) AS c FROM exercises e "
-                        + "JOIN lessons l ON e.lesson_id = l.id "
-                        + "WHERE l.language_id = '00000000-0000-0000-0000-0000000000e0' "
-                        + "AND e.type IN ('MULTIPLE_CHOICE','TRUE_FALSE','MATCHING','ODD_ONE_OUT','ERROR_FINDING') "
-                        + "GROUP BY l.order_index",
-                rs -> {
-                    Map<String, Long> m = new java.util.HashMap<>();
-                    while (rs.next()) {
-                        m.put(Integer.toString(rs.getInt("oi")), rs.getLong("c"));
-                    }
-                    return m;
-                });
-        assertThat(byLessonAuto.values()).allSatisfy(c -> assertThat(c).isGreaterThanOrEqualTo(5));
-        assertThat(byLessonAuto).hasSize(4);
+        // Minden lecke (angol ÉS német) auto >=5 és AI >=2.
+        assertThat(autoCountByLesson(EN_LANGUAGE_ID).values())
+                .allSatisfy(c -> assertThat(c).isGreaterThanOrEqualTo(5));
+        assertThat(aiCountByLesson(EN_LANGUAGE_ID).values())
+                .allSatisfy(c -> assertThat(c).isGreaterThanOrEqualTo(2));
+        assertThat(autoCountByLesson(DE_LANGUAGE_ID).values())
+                .allSatisfy(c -> assertThat(c).isGreaterThanOrEqualTo(5));
+        assertThat(aiCountByLesson(DE_LANGUAGE_ID).values())
+                .allSatisfy(c -> assertThat(c).isGreaterThanOrEqualTo(2));
+        assertThat(autoCountByLesson(EN_LANGUAGE_ID)).hasSize(enLessonOrders.size());
+        assertThat(autoCountByLesson(DE_LANGUAGE_ID)).hasSize(3);
 
-        Map<String, Long> byLessonAi = jdbc.query(
-                "SELECT l.order_index AS oi, count(*) AS c FROM exercises e "
-                        + "JOIN lessons l ON e.lesson_id = l.id "
-                        + "WHERE l.language_id = '00000000-0000-0000-0000-0000000000e0' "
-                        + "AND e.type IN ('TRANSLATION','AI_SCENARIO') "
-                        + "GROUP BY l.order_index",
-                rs -> {
-                    Map<String, Long> m = new java.util.HashMap<>();
-                    while (rs.next()) {
-                        m.put(Integer.toString(rs.getInt("oi")), rs.getLong("c"));
-                    }
-                    return m;
-                });
-        assertThat(byLessonAi.values()).allSatisfy(c -> assertThat(c).isGreaterThanOrEqualTo(2));
-        assertThat(byLessonAi).hasSize(4);
-
-        // >=12 duel_eligible auto feladat ÖSSZESEN.
-        long duelEligibleAuto = all.stream()
-                .filter(e -> AUTO_TYPES.contains(e.type()) && e.duelEligible())
+        // Nyelvenkénti duel_eligible auto: angol >=12, német >=6.
+        long enDuelAuto = all.stream()
+                .filter(e -> EN_LANGUAGE_ID.equals(e.languageId())
+                        && AUTO_TYPES.contains(e.type()) && e.duelEligible())
                 .count();
-        assertThat(duelEligibleAuto).isGreaterThanOrEqualTo(12);
+        assertThat(enDuelAuto).isGreaterThanOrEqualTo(12);
+        long deDuelAuto = all.stream()
+                .filter(e -> DE_LANGUAGE_ID.equals(e.languageId())
+                        && AUTO_TYPES.contains(e.type()) && e.duelEligible())
+                .count();
+        assertThat(deDuelAuto).isGreaterThanOrEqualTo(6);
 
-        // Minden auto típusból >=2.
+        // Minden auto típus képviselve a seedelt tartalomban, mindegyikből >=2.
         Map<String, Long> countByAutoType = all.stream()
                 .filter(e -> AUTO_TYPES.contains(e.type()))
                 .collect(Collectors.groupingBy(ExerciseRow::type, Collectors.counting()));
@@ -193,6 +202,46 @@ class SeedMigrationIT {
         // Auto feladatok required_for_completion=true.
         assertThat(all).filteredOn(e -> AUTO_TYPES.contains(e.type()))
                 .allSatisfy(e -> assertThat(e.required()).isTrue());
+    }
+
+    private Map<String, Long> autoCountByLesson(String languageId) {
+        return countByLesson(languageId,
+                "('MULTIPLE_CHOICE','TRUE_FALSE','MATCHING','ODD_ONE_OUT','ERROR_FINDING')");
+    }
+
+    private Map<String, Long> aiCountByLesson(String languageId) {
+        return countByLesson(languageId, "('TRANSLATION','AI_SCENARIO')");
+    }
+
+    private Map<String, Long> countByLesson(String languageId, String typeInClause) {
+        return jdbc.query(
+                "SELECT l.order_index AS oi, count(*) AS c FROM exercises e "
+                        + "JOIN lessons l ON e.lesson_id = l.id "
+                        + "WHERE l.language_id = '" + languageId + "' "
+                        + "AND e.type IN " + typeInClause + " "
+                        + "GROUP BY l.order_index",
+                rs -> {
+                    Map<String, Long> m = new java.util.HashMap<>();
+                    while (rs.next()) {
+                        m.put(Integer.toString(rs.getInt("oi")), rs.getLong("c"));
+                    }
+                    return m;
+                });
+    }
+
+    @Test
+    void germanDailyChallengeCanSelectThreeDuelEligibleExercises() {
+        List<UUID> deDuelEligibleAuto = jdbc.query(
+                "SELECT e.id FROM exercises e JOIN lessons l ON e.lesson_id = l.id "
+                        + "WHERE l.language_id = '" + DE_LANGUAGE_ID + "' AND e.duel_eligible = TRUE "
+                        + "AND e.type IN ('MULTIPLE_CHOICE','TRUE_FALSE','MATCHING','ODD_ONE_OUT','ERROR_FINDING')",
+                (rs, n) -> UUID.fromString(rs.getString("id")));
+        assertThat(deDuelEligibleAuto).hasSizeGreaterThanOrEqualTo(6);
+
+        List<UUID> selected = DailyChallengeSelection.select(
+                deDuelEligibleAuto, LocalDate.of(2024, 1, 1), UUID.fromString(DE_LANGUAGE_ID));
+        assertThat(selected).hasSize(DailyChallengeSelection.CHALLENGE_SIZE);
+        assertThat(deDuelEligibleAuto).containsAll(selected);
     }
 
     @Test
