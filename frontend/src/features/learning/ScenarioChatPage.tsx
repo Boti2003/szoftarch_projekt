@@ -11,7 +11,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useParams } from 'react-router-dom';
+import { Link as RouterLink, useParams } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import {
   useCompleteScenario,
@@ -94,6 +94,9 @@ export function ScenarioChatPage() {
 
   return (
     <Container maxWidth="sm" sx={{ py: 6 }}>
+      <Button component={RouterLink} to="/lessons" size="small" sx={{ mb: 2 }}>
+        ← Vissza a leckékhez
+      </Button>
       <Typography variant="h5" component="h1" gutterBottom>
         AI beszélgetős feladat
       </Typography>

@@ -1,10 +1,13 @@
 import {
   Alert,
   Box,
+  Breadcrumbs,
+  Button,
   Chip,
   CircularProgress,
   Container,
   Divider,
+  Link,
   List,
   ListItemButton,
   ListItemText,
@@ -14,7 +17,8 @@ import {
 } from '@mui/material';
 import Markdown from 'react-markdown';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import { useLesson } from './hooks';
+import { useEnrollments, useLesson, useLessons } from './hooks';
+import { exerciseRoute, nextLesson } from './navigation';
 import type { ExerciseDifficulty, ExerciseType } from './types';
 
 const DIFFICULTY_LABEL: Record<ExerciseDifficulty, string> = {
@@ -29,13 +33,27 @@ function isAiExercise(type: ExerciseType): boolean {
 }
 
 // Lesson detail (/lessons/:id): renders the theory markdown and the exercise
-// list with per-exercise navigation into the player.
+// list with per-exercise navigation into the player, plus breadcrumb and
+// next-lesson navigation.
 export function LessonDetailPage() {
   const { id } = useParams<{ id: string }>();
   const lesson = useLesson(id);
+  const enrollments = useEnrollments();
+  const lessons = useLessons(enrollments.data?.activeLanguageId ?? null);
+
+  const next = id && lessons.data ? nextLesson(lessons.data, id) : null;
 
   return (
     <Container maxWidth="md" sx={{ py: 6 }}>
+      <Breadcrumbs aria-label="Útvonal" sx={{ mb: 2 }}>
+        <Link component={RouterLink} to="/lessons" underline="hover" color="inherit">
+          Leckék
+        </Link>
+        <Typography color="text.primary">
+          {lesson.data ? lesson.data.title : 'Lecke'}
+        </Typography>
+      </Breadcrumbs>
+
       {lesson.isLoading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
           <CircularProgress aria-label="Betöltés" />
@@ -72,10 +90,11 @@ export function LessonDetailPage() {
           ) : (
             <List>
               {lesson.data.exercises.map((exercise) => {
-                const to =
-                  exercise.type === 'AI_SCENARIO'
-                    ? `/scenario/${exercise.exerciseId}`
-                    : `/lessons/${lesson.data!.lessonId}/exercises/${exercise.exerciseId}`;
+                const to = exerciseRoute(
+                  lesson.data!.lessonId,
+                  exercise.exerciseId,
+                  exercise.type,
+                );
                 return (
                   <ListItemButton
                     key={exercise.exerciseId}
@@ -116,6 +135,48 @@ export function LessonDetailPage() {
               })}
             </List>
           )}
+
+          <Divider sx={{ mt: 2 }} />
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={1}
+            justifyContent="space-between"
+            sx={{ mt: 3 }}
+          >
+            <Button
+              variant="outlined"
+              component={RouterLink}
+              to="/lessons"
+            >
+              ← Vissza a leckelistához
+            </Button>
+
+            {next?.lesson && !next.locked && (
+              <Button
+                variant="contained"
+                component={RouterLink}
+                to={`/lessons/${next.lesson.id}`}
+              >
+                Következő lecke →
+              </Button>
+            )}
+
+            {next?.lesson && next.locked && (
+              <Box>
+                <Button variant="contained" disabled>
+                  Következő lecke zárolva
+                </Button>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  display="block"
+                  sx={{ mt: 0.5 }}
+                >
+                  Előbb teljesítsd ezt a leckét legalább 70%-ra.
+                </Typography>
+              </Box>
+            )}
+          </Stack>
         </>
       )}
     </Container>

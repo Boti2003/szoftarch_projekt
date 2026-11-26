@@ -223,6 +223,9 @@ const exerciseMetaList: ExerciseMetadataResponse[] = Object.values(exercisePrese
   }),
 );
 
+// Exportálva, hogy a navigációs tesztek az orderIndex-sorrendet ellenőrizhessék.
+export { exerciseMetaList };
+
 function lessonDetailFor(lessonId: string): LessonDetailResponse {
   const allLessons = [...englishLessons, ...germanLessons];
   const meta = allLessons.find((l) => l.id === lessonId);

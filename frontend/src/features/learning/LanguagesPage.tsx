@@ -9,11 +9,13 @@ import {
   ListItem,
   ListItemText,
   Paper,
+  Snackbar,
   Stack,
   Typography,
 } from '@mui/material';
+import { useState } from 'react';
 import { useActivateLanguage, useEnrollments, useLanguages } from './hooks';
-import type { EnrollmentResponse, Uuid } from './types';
+import type { EnrollmentResponse, LanguageResponse, Uuid } from './types';
 
 // Language-selection page (/languages): lists the available languages, shows
 // the user's enrollments and which language is active, and lets the user
@@ -22,6 +24,7 @@ export function LanguagesPage() {
   const languages = useLanguages();
   const enrollments = useEnrollments();
   const activate = useActivateLanguage();
+  const [snackbar, setSnackbar] = useState<string | null>(null);
 
   const isLoading = languages.isLoading || enrollments.isLoading;
   const isError = languages.isError || enrollments.isError;
@@ -30,6 +33,12 @@ export function LanguagesPage() {
   const enrollmentByLanguage = new Map<Uuid, EnrollmentResponse>(
     (enrollments.data?.enrollments ?? []).map((e) => [e.languageId, e]),
   );
+
+  const onActivate = (language: LanguageResponse) => {
+    activate.mutate(language.id, {
+      onSuccess: () => setSnackbar(`Aktív nyelv: ${language.name}`),
+    });
+  };
 
   return (
     <Container maxWidth="sm" sx={{ py: 6 }}>
@@ -79,7 +88,7 @@ export function LanguagesPage() {
                       ) : (
                         <Button
                           variant="outlined"
-                          onClick={() => activate.mutate(language.id)}
+                          onClick={() => onActivate(language)}
                           disabled={activate.isPending}
                         >
                           {enrollment ? 'Aktiválás' : 'Kezdés'}
@@ -110,6 +119,22 @@ export function LanguagesPage() {
           </>
         )}
       </Paper>
+
+      <Snackbar
+        open={snackbar !== null}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSnackbar(null)}
+          severity="success"
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {snackbar}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 }

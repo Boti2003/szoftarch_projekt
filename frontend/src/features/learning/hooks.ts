@@ -30,6 +30,14 @@ import type {
 
 export const enrollmentsQueryKey = ['learning', 'enrollments'] as const;
 
+export function lessonsQueryKey(languageId: Uuid | null | undefined) {
+  return ['learning', 'lessons', languageId] as const;
+}
+
+export function lessonQueryKey(lessonId: Uuid | null | undefined) {
+  return ['learning', 'lesson', lessonId] as const;
+}
+
 export function useLanguages() {
   return useQuery<LanguageResponse[]>({
     queryKey: ['learning', 'languages'],
@@ -56,7 +64,7 @@ export function useActivateLanguage() {
 
 export function useLessons(languageId: Uuid | null | undefined) {
   return useQuery<LessonListItemResponse[]>({
-    queryKey: ['learning', 'lessons', languageId],
+    queryKey: lessonsQueryKey(languageId),
     queryFn: () => listLessons(languageId as Uuid),
     enabled: Boolean(languageId),
   });
@@ -64,7 +72,7 @@ export function useLessons(languageId: Uuid | null | undefined) {
 
 export function useLesson(lessonId: Uuid | undefined) {
   return useQuery<LessonDetailResponse>({
-    queryKey: ['learning', 'lesson', lessonId],
+    queryKey: lessonQueryKey(lessonId),
     queryFn: () => getLesson(lessonId as Uuid),
     enabled: Boolean(lessonId),
   });
@@ -78,10 +86,30 @@ export function useExercise(exerciseId: Uuid | undefined) {
   });
 }
 
-export function useSubmitAttempt(exerciseId: Uuid) {
+// Submits an attempt and, on success, invalidates the progress-bearing queries
+// (the lesson detail and the lesson list for the language) so the status
+// updates immediately without a reload. Pass the lesson context so the right
+// lesson/list keys are refreshed.
+export function useSubmitAttempt(
+  exerciseId: Uuid,
+  context?: { lessonId?: Uuid; languageId?: Uuid | null },
+) {
+  const queryClient = useQueryClient();
   return useMutation<AttemptResponse, Error, ExerciseAnswer>({
     mutationFn: (answer: ExerciseAnswer) =>
       submitAttempt(exerciseId, answer, newIdempotencyKey()),
+    onSuccess: () => {
+      if (context?.lessonId) {
+        void queryClient.invalidateQueries({
+          queryKey: lessonQueryKey(context.lessonId),
+        });
+      }
+      if (context?.languageId) {
+        void queryClient.invalidateQueries({
+          queryKey: lessonsQueryKey(context.languageId),
+        });
+      }
+    },
   });
 }
 

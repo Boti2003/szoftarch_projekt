@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
+import { MemoryRouter } from 'react-router-dom';
 import { expect, test } from 'vitest';
 import { ExercisePlayer } from './ExercisePlayer';
 import {
@@ -15,7 +16,9 @@ function renderPlayer(exerciseId: string) {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <ExercisePlayer exerciseId={exerciseId} />
+      <MemoryRouter>
+        <ExercisePlayer exerciseId={exerciseId} />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
