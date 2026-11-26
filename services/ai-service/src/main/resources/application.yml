@@ -21,6 +21,16 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+# Nyelvi modell provider (fake | openai-compatible). A fake kulcs nélkül fut.
+ai:
+  provider: ${AI_PROVIDER:fake}
+  openai:
+    base-url: ${AI_OPENAI_BASE_URL:https://api.openai.com/v1}
+    api-key: ${AI_OPENAI_API_KEY:}
+    model: ${AI_OPENAI_MODEL:gpt-4o-mini}
+  request-timeout-seconds: ${AI_REQUEST_TIMEOUT_SECONDS:20}
+
+
 management:
   endpoints:
     web:
