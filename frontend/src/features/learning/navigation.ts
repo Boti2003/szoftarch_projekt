@@ -1,7 +1,7 @@
 // Pure navigation helpers for the learning flow. They derive the "next"
 // targets from data the backend already returns (lesson.exercises ordered by
 // orderIndex, and the lesson list with unlocked/orderIndex), so no backend
-// change is needed. AI_SCENARIO exercises live on a different route than the
+// change is needed. AI_SCENARIO exercises live on a different page than the
 // auto/translation player, so the route is computed from the exercise type.
 import type {
   ExerciseMetadataResponse,
@@ -9,15 +9,17 @@ import type {
   LessonListItemResponse,
 } from './types';
 
-// AI scenario exercises are played on /scenario/:exerciseId; everything else
-// (auto types + translation) uses the in-lesson exercise player route.
+// AI scenario exercises are played on the scenario chat route; everything else
+// (auto types + translation) uses the in-lesson exercise player route. Both
+// carry the lesson id so the player can offer in-lesson navigation. The legacy
+// context-free /scenario/:exerciseId route still resolves to the same page.
 export function exerciseRoute(
   lessonId: string,
   exerciseId: string,
   type: ExerciseType,
 ): string {
   return type === 'AI_SCENARIO'
-    ? `/scenario/${exerciseId}`
+    ? `/lessons/${lessonId}/scenario/${exerciseId}`
     : `/lessons/${lessonId}/exercises/${exerciseId}`;
 }
 

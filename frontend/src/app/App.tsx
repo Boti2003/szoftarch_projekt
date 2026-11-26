@@ -32,6 +32,10 @@ export function App() {
                 element={<ExercisePlayerPage />}
               />
               <Route path="/scenario/:exerciseId" element={<ScenarioChatPage />} />
+              <Route
+                path="/lessons/:lessonId/scenario/:exerciseId"
+                element={<ScenarioChatPage />}
+              />
               <Route path="/daily" element={<DailyChallengePage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

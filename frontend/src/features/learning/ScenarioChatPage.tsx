@@ -11,13 +11,19 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { Link as RouterLink, useParams } from 'react-router-dom';
+import {
+  Link as RouterLink,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import {
   useCompleteScenario,
+  useLesson,
   useSendScenarioMessage,
   useStartScenario,
 } from './hooks';
+import { exerciseRoute, nextExercise } from './navigation';
 import type { ScenarioCompleteResponse, Uuid } from './types';
 
 interface ChatTurn {
@@ -38,10 +44,22 @@ function errorMessage(error: unknown): { message: string; retryable: boolean } {
   return { message: 'Hiba történt. Próbáld újra.', retryable: false };
 }
 
-// AI scenario chat (/scenario/:exerciseId): start a session, exchange turn-by-turn
-// messages, then complete to get the closing feedback. Keyboard accessible.
+// AI scenario chat. Reachable both with lesson context
+// (/lessons/:lessonId/scenario/:exerciseId) and without it (legacy
+// /scenario/:exerciseId). Starts a session, exchanges turn-by-turn messages,
+// then completes to get the closing feedback. When lesson context is present,
+// the closing feedback offers "back to lesson" / "next exercise" navigation,
+// matching the exercise player (U12). Keyboard accessible.
 export function ScenarioChatPage() {
-  const { exerciseId } = useParams<{ exerciseId: string }>();
+  const { exerciseId, lessonId } = useParams<{
+    exerciseId: string;
+    lessonId?: string;
+  }>();
+  const navigate = useNavigate();
+
+  // Lesson context (optional): the lesson's exercise list drives the
+  // "next exercise" target. Only fetched when the lesson id is in the route.
+  const lesson = useLesson(lessonId);
 
   const start = useStartScenario(exerciseId as Uuid);
   const sessionId: Uuid | undefined = start.data?.sessionId;
@@ -63,6 +81,11 @@ export function ScenarioChatPage() {
   }, []);
 
   const openingMessage = start.data?.openingMessage;
+
+  const next =
+    lessonId && lesson.data && exerciseId
+      ? nextExercise(lesson.data.exercises, exerciseId)
+      : null;
 
   const onSend = () => {
     const message = draft.trim();
@@ -94,9 +117,20 @@ export function ScenarioChatPage() {
 
   return (
     <Container maxWidth="sm" sx={{ py: 6 }}>
-      <Button component={RouterLink} to="/lessons" size="small" sx={{ mb: 2 }}>
-        ← Vissza a leckékhez
-      </Button>
+      {lessonId ? (
+        <Button
+          component={RouterLink}
+          to={`/lessons/${lessonId}`}
+          size="small"
+          sx={{ mb: 2 }}
+        >
+          ← Vissza a leckéhez
+        </Button>
+      ) : (
+        <Button component={RouterLink} to="/lessons" size="small" sx={{ mb: 2 }}>
+          ← Vissza a leckékhez
+        </Button>
+      )}
       <Typography variant="h5" component="h1" gutterBottom>
         AI beszélgetős feladat
       </Typography>
@@ -226,6 +260,43 @@ export function ScenarioChatPage() {
                 <Typography variant="body2" color="text.secondary">
                   Szerzett pont: {result.points}
                 </Typography>
+
+                {lessonId && (
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1}
+                    sx={{ pt: 1 }}
+                  >
+                    {next ? (
+                      <Button
+                        variant="contained"
+                        onClick={() =>
+                          navigate(
+                            exerciseRoute(
+                              lessonId,
+                              next.exerciseId,
+                              next.type,
+                            ),
+                          )
+                        }
+                      >
+                        Következő feladat →
+                      </Button>
+                    ) : (
+                      <Alert severity="success" sx={{ flexGrow: 1 }}>
+                        Ez volt a lecke utolsó feladata. Térj vissza a leckéhez a
+                        folytatáshoz.
+                      </Alert>
+                    )}
+                    <Button
+                      variant="outlined"
+                      component={RouterLink}
+                      to={`/lessons/${lessonId}`}
+                    >
+                      Vissza a leckéhez
+                    </Button>
+                  </Stack>
+                )}
               </Stack>
             </Paper>
           )}
