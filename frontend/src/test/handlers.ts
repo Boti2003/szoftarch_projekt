@@ -1,16 +1,23 @@
 import { http, HttpResponse } from 'msw';
 import type {
+  AttemptRequest,
   AttemptResponse,
   DailyChallengeTodayResponse,
   EnrollmentsResponse,
+  ErrorFindingAnswer,
+  ExerciseAnswer,
   ExerciseMetadataResponse,
   ExercisePresentationResponse,
   LanguageResponse,
   LessonDetailResponse,
   LessonListItemResponse,
+  MatchingAnswer,
+  MultipleChoiceAnswer,
+  OddOneOutAnswer,
   ScenarioCompleteResponse,
   ScenarioMessageResponse,
   ScenarioStartResponse,
+  TrueFalseAnswer,
 } from '../features/learning/types';
 
 // Megosztott MSW fixtures + handlers. FONTOS: ez a fájl NEM importál `msw/node`-ot
@@ -252,6 +259,102 @@ export const attemptResponseFixture: AttemptResponse = {
   pointAwardStatus: 'AWARDED',
 };
 
+// --- MOCK-ONLY helyes-megoldás térkép ---
+// FIGYELEM: ez CSAK a mockban él, kizárólag a fenti demo-fixture feladatokhoz
+// igazodik. NEM a valódi backend (U3 evaluator) solution-je; a valódi
+// kiértékelés szerveroldalon történik. Azért kell, hogy a böngészős MSW-demó
+// őszinte legyen (ne fogadjon el vakon minden beküldést 'Helyes'-ként).
+// Csak az 5 AUTO típushoz adunk megoldást; a TRANSLATION és AI_SCENARIO
+// AI-kiértékelésű, ezért kimarad (marad a fix siker).
+type MockSolution =
+  | { type: 'MULTIPLE_CHOICE'; selectedOptionIds: string[] }
+  | { type: 'TRUE_FALSE'; answer: boolean }
+  | { type: 'MATCHING'; pairs: { leftId: string; rightId: string }[] }
+  | { type: 'ODD_ONE_OUT'; selectedItemId: string }
+  | { type: 'ERROR_FINDING'; markedTokenIndexes: number[] };
+
+export const mockSolutions: Record<string, MockSolution> = {
+  // 'Hello' (id 'a') a helyes köszönés.
+  [EX_MULTIPLE_CHOICE]: { type: 'MULTIPLE_CHOICE', selectedOptionIds: ['a'] },
+  // "Break the ice" = oldani a feszültséget → igaz.
+  [EX_TRUE_FALSE]: { type: 'TRUE_FALSE', answer: true },
+  // hit the books → tanulni kezd (l1-r1); under the weather → gyengélkedik (l2-r2).
+  [EX_MATCHING]: {
+    type: 'MATCHING',
+    pairs: [
+      { leftId: 'l1', rightId: 'r1' },
+      { leftId: 'l2', rightId: 'r2' },
+    ],
+  },
+  // 'car' (id 'i3') a kilógó elem a phrasal verb-ök között.
+  [EX_ODD_ONE_OUT]: { type: 'ODD_ONE_OUT', selectedItemId: 'i3' },
+  // "If I would know the answer" – a hibás szó a "would" (index 2).
+  [EX_ERROR_FINDING]: { type: 'ERROR_FINDING', markedTokenIndexes: [2] },
+};
+
+function sameSet<T>(a: T[], b: T[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const bs = new Set(b);
+  return a.every((x) => bs.has(x));
+}
+
+function isAnswerCorrect(solution: MockSolution, answer: ExerciseAnswer): boolean {
+  switch (solution.type) {
+    case 'MULTIPLE_CHOICE':
+      return sameSet(
+        solution.selectedOptionIds,
+        (answer as MultipleChoiceAnswer).selectedOptionIds ?? [],
+      );
+    case 'TRUE_FALSE':
+      return (answer as TrueFalseAnswer).answer === solution.answer;
+    case 'MATCHING': {
+      const expected = solution.pairs.map((p) => `${p.leftId}:${p.rightId}`);
+      const given = ((answer as MatchingAnswer).pairs ?? []).map(
+        (p) => `${p.leftId}:${p.rightId}`,
+      );
+      return sameSet(expected, given);
+    }
+    case 'ODD_ONE_OUT':
+      return (answer as OddOneOutAnswer).selectedItemId === solution.selectedItemId;
+    case 'ERROR_FINDING':
+      return sameSet(
+        solution.markedTokenIndexes,
+        (answer as ErrorFindingAnswer).markedTokenIndexes ?? [],
+      );
+    default:
+      return false;
+  }
+}
+
+// A beküldött választ a mockSolutions szerint értékeli ki. Ismeretlen
+// exerciseId / hiányzó mockSolution esetén a jelenlegi fix sikert adja vissza
+// (TRANSLATION, AI_SCENARIO és minden nem térképezett feladat így marad).
+function evaluateAttempt(exerciseId: string, body: AttemptRequest): AttemptResponse {
+  const solution = mockSolutions[exerciseId];
+  if (!solution) {
+    return attemptResponseFixture;
+  }
+  const correct = isAnswerCorrect(solution, body.answer);
+  if (correct) {
+    return {
+      attemptId: attemptResponseFixture.attemptId,
+      scoreRatio: 1,
+      correct: true,
+      feedback: 'Szép munka!',
+      pointAwardStatus: 'AWARDED',
+    };
+  }
+  return {
+    attemptId: attemptResponseFixture.attemptId,
+    scoreRatio: 0,
+    correct: false,
+    feedback: 'Nem egészen, próbáld újra!',
+    pointAwardStatus: 'NOT_APPLICABLE',
+  };
+}
+
 export const dailyChallengeFixture: DailyChallengeTodayResponse = {
   challengeId: '55555555-5555-5555-5555-555555555555',
   date: '2024-01-02',
@@ -322,16 +425,21 @@ export const handlers = [
     return HttpResponse.json(presentation);
   }),
 
-  http.post('/api/v1/exercises/:exerciseId/attempts', () =>
-    HttpResponse.json(attemptResponseFixture),
-  ),
+  http.post('/api/v1/exercises/:exerciseId/attempts', async ({ params, request }) => {
+    const body = (await request.json()) as AttemptRequest;
+    return HttpResponse.json(evaluateAttempt(params.exerciseId as string, body));
+  }),
 
   http.get('/api/v1/daily-challenges/today', () =>
     HttpResponse.json(dailyChallengeFixture),
   ),
 
-  http.post('/api/v1/daily-challenges/today/exercises/:exerciseId/attempts', () =>
-    HttpResponse.json(attemptResponseFixture),
+  http.post(
+    '/api/v1/daily-challenges/today/exercises/:exerciseId/attempts',
+    async ({ params, request }) => {
+      const body = (await request.json()) as AttemptRequest;
+      return HttpResponse.json(evaluateAttempt(params.exerciseId as string, body));
+    },
   ),
 
   http.post('/api/v1/ai-scenarios/:exerciseId/sessions', () =>
