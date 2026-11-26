@@ -22,6 +22,8 @@ test('betölti a leckéket és megjeleníti a státusz címkéket', async () => 
 
   expect(await screen.findByText('1. Alapok')).toBeInTheDocument();
   expect(await screen.findByText('Folyamatban')).toBeInTheDocument();
-  expect(await screen.findByText('Befejezve')).toBeInTheDocument();
-  expect(await screen.findByText('Zárolva')).toBeInTheDocument();
+  // A demó-fixture több leckét mutat (angol: 9 lecke), így egyes státusz-chipek
+  // többször is előfordulnak — getAllByText a nem egyedi címkékhez.
+  expect((await screen.findAllByText('Befejezve')).length).toBeGreaterThanOrEqual(1);
+  expect((await screen.findAllByText('Zárolva')).length).toBeGreaterThanOrEqual(1);
 });

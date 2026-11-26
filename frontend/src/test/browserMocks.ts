@@ -1,9 +1,11 @@
 import { setupWorker } from 'msw/browser';
-import { handlers } from './mswServer';
+import { handlers } from './handlers';
 
-// Browser-side MSW worker reusing the shared handlers. Only started when the
-// app is launched with VITE_USE_MSW=true (the Playwright e2e dev server), so
-// production and normal `npm run dev` are unaffected.
+// Böngésző-oldali MSW worker a megosztott handlerekkel. A handlers.ts NEM
+// importál msw/node-ot, így a böngészőbe nem kerül Node-specifikus kód
+// (korábban a mswServer.ts-ből importálva a `node:net`/setupServer miatt
+// "The superclass is not a constructor" hibával elszállt a bootstrap).
+// Csak VITE_USE_MSW=true esetén indul (Playwright e2e és kézi fejlesztői próba).
 export const worker = setupWorker(...handlers);
 
 export function startBrowserMocks(): Promise<unknown> {
