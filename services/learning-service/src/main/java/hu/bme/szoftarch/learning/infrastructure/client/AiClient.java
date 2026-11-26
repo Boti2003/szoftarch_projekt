@@ -67,8 +67,8 @@ public class AiClient implements AiEvaluationPort {
     @Override
     public TranslationEvaluation evaluateTranslation(EvaluateTranslationCommand command) {
         TranslationEvaluateRequest body = new TranslationEvaluateRequest(
-                command.sourceText(), command.targetLanguageCode(), command.rubric(),
-                command.userTranslation());
+                command.sourceText(), command.targetLanguageCode(),
+                command.userTranslation(), java.util.List.of(), command.rubric());
         String uri = aiProperties.url() + "/internal/v1/translations:evaluate";
         TranslationEvaluateResponse response = post(uri, body, TranslationEvaluateResponse.class,
                 "translation evaluate");
