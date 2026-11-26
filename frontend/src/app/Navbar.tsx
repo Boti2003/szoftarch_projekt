@@ -27,9 +27,20 @@ export function Navbar() {
             Ranglista
           </Button>
           {user && (
-            <Button component={RouterLink} to="/profile" color="inherit">
-              Profil
-            </Button>
+            <>
+              <Button component={RouterLink} to="/languages" color="inherit">
+                Tanulás
+              </Button>
+              <Button component={RouterLink} to="/lessons" color="inherit">
+                Leckék
+              </Button>
+              <Button component={RouterLink} to="/daily" color="inherit">
+                Napi kihívás
+              </Button>
+              <Button component={RouterLink} to="/profile" color="inherit">
+                Profil
+              </Button>
+            </>
           )}
         </Box>
 

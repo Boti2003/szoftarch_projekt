@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
 import { expect, test } from 'vitest';
 import { LanguagesPage } from './LanguagesPage';
@@ -11,7 +12,9 @@ function renderPage() {
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <LanguagesPage />
+      <MemoryRouter>
+        <LanguagesPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }

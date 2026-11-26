@@ -14,6 +14,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useActivateLanguage, useEnrollments, useLanguages } from './hooks';
 import type { EnrollmentResponse, LanguageResponse, Uuid } from './types';
 
@@ -24,6 +25,7 @@ export function LanguagesPage() {
   const languages = useLanguages();
   const enrollments = useEnrollments();
   const activate = useActivateLanguage();
+  const navigate = useNavigate();
   const [snackbar, setSnackbar] = useState<string | null>(null);
 
   const isLoading = languages.isLoading || enrollments.isLoading;
@@ -36,7 +38,11 @@ export function LanguagesPage() {
 
   const onActivate = (language: LanguageResponse) => {
     activate.mutate(language.id, {
-      onSuccess: () => setSnackbar(`Aktív nyelv: ${language.name}`),
+      onSuccess: () => {
+        setSnackbar(`Aktív nyelv: ${language.name} – indulhat a tanulás!`);
+        // A nyelv aktiválása után vezessük a felhasználót a leckékhez.
+        setTimeout(() => navigate('/lessons'), 700);
+      },
     });
   };
 
