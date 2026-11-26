@@ -111,6 +111,20 @@ function DailyExerciseCard({
             </Typography>
           </Stack>
           <Typography>{submit.data.feedback}</Typography>
+          {!submit.data.correct && (
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => {
+                setState(EMPTY_ANSWER_STATE);
+                setValidationError(null);
+                submit.reset();
+              }}
+              sx={{ alignSelf: 'flex-start' }}
+            >
+              Próbáld újra
+            </Button>
+          )}
         </Stack>
       )}
     </Paper>

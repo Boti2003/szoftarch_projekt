@@ -180,6 +180,21 @@ export function ExercisePlayer({
                   {POINT_AWARD_LABEL[submit.data.pointAwardStatus]}
                 </Typography>
 
+                {!submit.data.correct && (
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={() => {
+                      setState(EMPTY_ANSWER_STATE);
+                      setValidationError(null);
+                      submit.reset();
+                    }}
+                    sx={{ alignSelf: 'flex-start' }}
+                  >
+                    Próbáld újra
+                  </Button>
+                )}
+
                 {lessonId && (
                   <Stack
                     direction={{ xs: 'column', sm: 'row' }}
