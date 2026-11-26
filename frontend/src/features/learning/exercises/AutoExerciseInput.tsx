@@ -15,9 +15,16 @@ import {
   trueFalseSchema,
 } from '../answerSchemas';
 import type {
+  ErrorFindingContent,
   ExerciseAnswer,
   ExerciseContent,
+  ExerciseType,
+  MatchingContent,
   MatchingPair,
+  MultipleChoiceContent,
+  OddOneOutContent,
+  TranslationContent,
+  TrueFalseContent,
 } from '../types';
 
 // Mutable per-type answer state. Collected into the API answer payload on submit.
@@ -41,11 +48,14 @@ export const EMPTY_ANSWER_STATE: AnswerState = {
 
 // Validates the collected state against the per-type Zod schema and returns the
 // API answer payload, or a UX error message. Never judges correctness.
+// A `type` a prezentáció külső típusa (a backend NEM teszi a content-be a type-ot,
+// ezért azt itt kapjuk; fallback a content.type a mock/régi fixture-ökhöz).
 export function buildAutoAnswer(
   content: ExerciseContent,
   state: AnswerState,
+  type?: ExerciseType,
 ): { answer: ExerciseAnswer } | { error: string } {
-  switch (content.type) {
+  switch (type ?? content.type) {
     case 'MULTIPLE_CHOICE': {
       const parsed = multipleChoiceSchema.safeParse({
         selectedOptionIds: state.selectedOptionIds,
@@ -63,7 +73,7 @@ export function buildAutoAnswer(
     case 'MATCHING': {
       const parsed = matchingSchema.safeParse({ pairs: state.pairs });
       if (!parsed.success) return { error: parsed.error.issues[0].message };
-      if (parsed.data.pairs.length < content.leftItems.length) {
+      if (parsed.data.pairs.length < (content as MatchingContent).leftItems.length) {
         return { error: 'Minden elemhez válassz párt.' };
       }
       return { answer: parsed.data };
@@ -97,6 +107,7 @@ export function buildAutoAnswer(
 
 interface Props {
   content: ExerciseContent;
+  type?: ExerciseType;
   state: AnswerState;
   onChange: (state: AnswerState) => void;
   disabled?: boolean;
@@ -105,12 +116,12 @@ interface Props {
 // Branches on the content type to render the matching input component. The
 // answer state is owned by the caller so it can build + submit the payload.
 // Never renders or derives the correct answer.
-export function AutoExerciseInput({ content, state, onChange, disabled }: Props) {
-  switch (content.type) {
+export function AutoExerciseInput({ content, type, state, onChange, disabled }: Props) {
+  switch (type ?? content.type) {
     case 'MULTIPLE_CHOICE':
       return (
         <MultipleChoiceExercise
-          content={content}
+          content={content as MultipleChoiceContent}
           value={state.selectedOptionIds}
           onChange={(selectedOptionIds) => onChange({ ...state, selectedOptionIds })}
           disabled={disabled}
@@ -119,7 +130,7 @@ export function AutoExerciseInput({ content, state, onChange, disabled }: Props)
     case 'TRUE_FALSE':
       return (
         <TrueFalseExercise
-          content={content}
+          content={content as TrueFalseContent}
           value={state.trueFalse}
           onChange={(trueFalse) => onChange({ ...state, trueFalse })}
           disabled={disabled}
@@ -128,7 +139,7 @@ export function AutoExerciseInput({ content, state, onChange, disabled }: Props)
     case 'MATCHING':
       return (
         <MatchingExercise
-          content={content}
+          content={content as MatchingContent}
           value={state.pairs}
           onChange={(pairs) => onChange({ ...state, pairs })}
           disabled={disabled}
@@ -137,7 +148,7 @@ export function AutoExerciseInput({ content, state, onChange, disabled }: Props)
     case 'ODD_ONE_OUT':
       return (
         <OddOneOutExercise
-          content={content}
+          content={content as OddOneOutContent}
           value={state.selectedItemId}
           onChange={(selectedItemId) => onChange({ ...state, selectedItemId })}
           disabled={disabled}
@@ -146,7 +157,7 @@ export function AutoExerciseInput({ content, state, onChange, disabled }: Props)
     case 'ERROR_FINDING':
       return (
         <ErrorFindingExercise
-          content={content}
+          content={content as ErrorFindingContent}
           value={state.markedTokenIndexes}
           onChange={(markedTokenIndexes) => onChange({ ...state, markedTokenIndexes })}
           disabled={disabled}
@@ -155,7 +166,7 @@ export function AutoExerciseInput({ content, state, onChange, disabled }: Props)
     case 'TRANSLATION':
       return (
         <TranslationExercise
-          content={content}
+          content={content as TranslationContent}
           value={state.translationText}
           onChange={(translationText) => onChange({ ...state, translationText })}
           disabled={disabled}

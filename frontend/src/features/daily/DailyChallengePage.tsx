@@ -54,7 +54,7 @@ function DailyExerciseCard({
   const disabled = submit.isPending || submit.isSuccess;
 
   const onSubmit = () => {
-    const result = buildAutoAnswer(presentation.content, state);
+    const result = buildAutoAnswer(presentation.content, state, presentation.type);
     if ('error' in result) {
       setValidationError(result.error);
       return;
@@ -71,6 +71,7 @@ function DailyExerciseCard({
 
       <AutoExerciseInput
         content={presentation.content}
+        type={presentation.type}
         state={state}
         onChange={setState}
         disabled={disabled}

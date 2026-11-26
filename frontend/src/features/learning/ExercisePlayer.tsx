@@ -82,7 +82,7 @@ export function ExercisePlayer({
 
   const onSubmit = () => {
     if (!presentation) return;
-    const result = buildAutoAnswer(presentation.content, state);
+    const result = buildAutoAnswer(presentation.content, state, presentation.type);
     if ('error' in result) {
       setValidationError(result.error);
       return;
@@ -134,6 +134,7 @@ export function ExercisePlayer({
           <Paper variant="outlined" sx={{ p: 3, mt: 2 }}>
             <AutoExerciseInput
               content={presentation.content}
+              type={presentation.type}
               state={state}
               onChange={setState}
               disabled={disabled}
