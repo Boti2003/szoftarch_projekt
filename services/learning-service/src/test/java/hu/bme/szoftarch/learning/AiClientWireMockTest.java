@@ -94,8 +94,8 @@ class AiClientWireMockTest {
         wireMock.verify(postRequestedFor(urlEqualTo("/internal/v1/translations:evaluate"))
                 .withHeader(HEADER, equalTo(API_KEY))
                 .withRequestBody(matchingJsonPath("$.sourceText", equalTo("Jó reggelt")))
-                .withRequestBody(matchingJsonPath("$.targetLanguageCode", equalTo("en")))
-                .withRequestBody(matchingJsonPath("$.userTranslation", equalTo("Good morning")))
+                .withRequestBody(matchingJsonPath("$.targetLanguage", equalTo("en")))
+                .withRequestBody(matchingJsonPath("$.learnerTranslation", equalTo("Good morning")))
                 .withRequestBody(matchingJsonPath("$.email", absent()))
                 .withRequestBody(matchingJsonPath("$.token", absent())));
     }
