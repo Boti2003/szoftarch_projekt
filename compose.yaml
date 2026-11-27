@@ -27,6 +27,8 @@ services:
       AI_DB_NAME: ${AI_DB_NAME}
       AI_DB_USER: ${AI_DB_USER}
       AI_DB_PASSWORD: ${AI_DB_PASSWORD}
+    ports:
+      - "5432:5432"
     volumes:
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
       - postgres-data:/var/lib/postgresql/data
@@ -51,6 +53,10 @@ services:
       IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       JWT_ISSUER: ${JWT_ISSUER}
+      JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH}
+      JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH}
+    volumes:
+      - ./secrets:/run/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,6 +84,11 @@ services:
       IDENTITY_URL: http://identity-service:8080
       AI_URL: http://ai-service:8080
       BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE}
+      JWT_PUBLIC_KEY_PATH: file:/run/secrets/jwt-public.pem
+    volumes:
+      # Least privilege: a nem-Identity service-ek CSAK a publikus kulcsot kapják
+      # (az aláírás ellenőrzéséhez). A privát kulcs kizárólag az Identity-é.
+      - ./secrets/jwt-public.pem:/run/secrets/jwt-public.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -94,7 +105,16 @@ services:
     build:
       context: .
       dockerfile: services/social-service/Dockerfile
+    # Dev/demo only: expose the service directly so Swagger UI is reachable at
+    # http://localhost:8083/swagger-ui.html (nginx only routes /api/). Remove
+    # or comment out for a production-like run where only nginx :443 is public.
+    ports:
+      - "8083:8080"
     environment:
+      # Optional Spring profile passthrough from the host shell. Unset = secure
+      # default profile. Prefix the up command with SPRING_PROFILES_ACTIVE=dev
+      # to enable the permit-all dev profile (dev/demo only, NEVER in prod).
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
       SERVER_PORT: 8080
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -103,7 +123,16 @@ services:
       SOCIAL_DB_PASSWORD: ${SOCIAL_DB_PASSWORD}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       IDENTITY_URL: http://identity-service:8080
+      # Social reads Identity internal API base from IDENTITY_INTERNAL_BASE_URL
+      # (the adapter default is localhost:8081, wrong inside the container).
+      IDENTITY_INTERNAL_BASE_URL: http://identity-service:8080
       LEARNING_URL: http://learning-service:8080
+      # RS256 public key for JWT validation (shared secret; Identity holds the private key).
+      JWT_PUBLIC_KEY_PATH: file:/run/secrets/jwt-public.pem
+      JWT_ISSUER: ${JWT_ISSUER}
+    volumes:
+      # Least privilege: only the PUBLIC key is mounted for signature checking.
+      - ./secrets/jwt-public.pem:/run/secrets/jwt-public.pem:ro
     depends_on:
       postgres:
         condition: service_healthy

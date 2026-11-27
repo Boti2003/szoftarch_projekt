@@ -4,8 +4,26 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
   jpa:
     hibernate:
       ddl-auto: none
   flyway:
     enabled: false
+
+learning:
+  identity:
+    url: http://identity.test.invalid
+  daily:
+    business-timezone: Europe/Budapest
+  points:
+    scheduler-enabled: false
+  security:
+    jwt:
+      issuer: szoftarch-nyelvtanulo
+      public-key: classpath:keys/jwt-public-test.pub
+    internal:
+      api-key: test-internal-api-key-at-least-32-bytes-value

@@ -21,6 +21,36 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+social:
+  # Correlation-id header propagated end to end for traceability.
+  correlation-header: ${CORRELATION_HEADER:X-Correlation-Id}
+  # RS256 validation uses the shared PUBLIC key (X.509 PEM) mounted from the
+  # project secrets; Identity holds the private key. Matches the other services.
+  security:
+    jwt:
+      public-key: ${JWT_PUBLIC_KEY_PATH:file:/run/secrets/jwt-public.pem}
+      issuer: ${JWT_ISSUER:}
+  internal:
+    # Shared service-to-service key sent as X-Internal-Api-Key (secret; never logged).
+    api-key: ${INTERNAL_API_KEY:change-me-at-least-32-bytes-random-value}
+    correlation-header: X-Correlation-Id
+  # Outbound adapter to the Identity internal API.
+  identity:
+    base-url: ${IDENTITY_INTERNAL_BASE_URL:http://localhost:8081}
+    # Shared internal API key sent as X-Internal-Api-Key (secret; never logged).
+    api-key: ${INTERNAL_API_KEY:change-me-internal}
+    correlation-header: ${CORRELATION_HEADER:X-Correlation-Id}
+    connect-timeout: 2s
+    read-timeout: 5s
+    batch-size: 100
+  # Outbound adapter to the Learning internal API.
+  learning:
+    base-url: ${LEARNING_URL:http://learning-service:8080}/internal/v1
+    api-key: ${social.internal.api-key}
+    correlation-header: ${social.internal.correlation-header}
+    connect-timeout: 2s
+    read-timeout: 5s
+
 management:
   endpoints:
     web:

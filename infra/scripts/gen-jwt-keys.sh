@@ -18,6 +18,7 @@ fi
 echo "RS256 kulcspár generálása..."
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
     -out "$SECRETS_DIR/jwt-private.pem"
+chmod 644 "$SECRETS_DIR/jwt-private.pem"
 openssl rsa -in "$SECRETS_DIR/jwt-private.pem" -pubout \
     -out "$SECRETS_DIR/jwt-public.pem"
 

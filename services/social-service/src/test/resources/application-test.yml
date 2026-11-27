@@ -9,3 +9,10 @@ spring:
       ddl-auto: none
   flyway:
     enabled: false
+
+# RS256 public key for the resource-server decoder in full-context tests
+# (slice/security tests mock the JwtDecoder; this satisfies the others).
+social:
+  security:
+    jwt:
+      public-key: classpath:keys/jwt-public-test.pub

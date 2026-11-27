@@ -1,18 +1,11 @@
 import { setupServer } from 'msw/node';
-import { http, HttpResponse } from 'msw';
+import { handlers } from './handlers';
 
-// Alapértelmezett handlerek a skeletonhoz. A gazdák feature-önként bővítik.
-export const handlers = [
-  http.get('/api/v1/system/health', () =>
-    HttpResponse.json({
-      status: 'UP',
-      gateway: 'UP',
-      identity: 'UP',
-      learning: 'UP',
-      social: 'UP',
-      ai: 'UP',
-    }),
-  ),
-];
+// Node-oldali MSW szerver a Vitest tesztekhez. A handlerek és fixtures a
+// handlers.ts-ben vannak (msw/node nélkül), hogy a böngésző-worker is
+// használhassa őket. A meglévő tesztek kompatibilitásáért minden fixture-t
+// és a handlers-t itt re-exportáljuk. (Integrációs merge: az Identity auth-
+// handlerei is a handlers.ts-ben vannak, ld. mockUser export.)
+export * from './handlers';
 
 export const server = setupServer(...handlers);

@@ -31,3 +31,13 @@ management:
       probes:
         enabled: true
       show-details: always
+
+jwt:
+  issuer: ${JWT_ISSUER:szoftarch-nyelvtanulo}
+  access-token-ttl-seconds: ${JWT_ACCESS_TOKEN_TTL_SECONDS:300}
+  refresh-token-ttl-seconds: ${JWT_REFRESH_TOKEN_TTL_SECONDS:604800}
+  private-key-path: ${JWT_PRIVATE_KEY_PATH:secrets/jwt-private.pem}
+  public-key-path: ${JWT_PUBLIC_KEY_PATH:secrets/jwt-public.pem}
+
+internal:
+  api-key: ${INTERNAL_API_KEY:change-me-at-least-32-bytes-random-value}

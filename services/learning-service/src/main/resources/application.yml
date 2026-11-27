@@ -31,3 +31,20 @@ management:
       probes:
         enabled: true
       show-details: always
+
+learning:
+  identity:
+    url: ${IDENTITY_URL:http://localhost:8080}
+  ai:
+    url: ${AI_URL:http://ai-service:8080}
+  daily:
+    business-timezone: ${BUSINESS_TIMEZONE:Europe/Budapest}
+  points:
+    poll-delay-ms: ${POINT_POLL_DELAY_MS:30000}
+    scheduler-enabled: ${POINT_SCHEDULER_ENABLED:true}
+  security:
+    jwt:
+      issuer: ${JWT_ISSUER:szoftarch-nyelvtanulo}
+      public-key: ${JWT_PUBLIC_KEY_PATH:file:/run/secrets/jwt-public.pem}
+    internal:
+      api-key: ${INTERNAL_API_KEY:}

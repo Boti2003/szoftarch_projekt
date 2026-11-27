@@ -2,23 +2,154 @@ import { CssBaseline, ThemeProvider } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { theme } from './theme';
+import { Navbar } from './Navbar';
+import { AuthProvider } from '../features/auth/AuthContext';
+import { ProtectedRoute } from '../features/auth/ProtectedRoute';
+import { LoginPage } from '../features/auth/LoginPage';
+import { RegisterPage } from '../features/auth/RegisterPage';
+import { ProfilePage } from '../features/profile/ProfilePage';
+import { LeaderboardPage } from '../features/leaderboard/LeaderboardPage';
 import { HealthDashboard } from '../features/health/HealthDashboard';
+import { AppLayout } from '../components/AppLayout';
+import { LanguagesPage } from '../features/learning/LanguagesPage';
+import { LessonListPage } from '../features/learning/LessonListPage';
+import { LessonDetailPage } from '../features/learning/LessonDetailPage';
+import { ExercisePlayerPage } from '../features/learning/ExercisePlayerPage';
+import { ScenarioChatPage } from '../features/learning/ScenarioChatPage';
+import { DailyChallengePage } from '../features/daily/DailyChallengePage';
+import { FriendsPage } from '../features/social/FriendsPage';
+import { FriendsLeaderboardPage } from '../features/social/FriendsLeaderboardPage';
+import { DuelsPage } from '../features/social/DuelsPage';
+import { DuelDetailPage } from '../features/social/DuelDetailPage';
 
 const queryClient = new QueryClient();
 
+// INTEGRÃCIÃS MERGE-DÃNTÃS (integration branch, learning + identity):
+// Az Identity (A) auth-keretÃ©t (AuthProvider + Navbar + ProtectedRoute + login/
+// register/profile/leaderboard) Ã©s a Learning (B) feature-oldalait (learning +
+// daily) egyesÃ­tjÃ¼k. A learning/daily oldalak JWT-t igÃ©nyelnek (a backend minden
+// /api/v1/** vÃ©gpontja vÃ©dett), ezÃ©rt a ProtectedRoute ALÃ kerÃ¼lnek. A health,
+// login, register publikus. Az AppLayout a learning oldalak kÃ¶zÃ¶s kerete; a Navbar
+// az Identity globÃ¡lis navigÃ¡ciÃ³ja â egyelÅre mindkettÅ megmarad (lÃ¡sd
+// INTEGRACIO 9. szakasz: a kÃ¶zÃ¶s layout/Navbar Ã¶sszevonÃ¡sa D-vel tisztÃ¡zandÃ³).
 export function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <Routes>
-            {/* Skeleton: a health dashboard bizonyítja a végponttól végpontig működést.
-                A feature oldalakat (auth, learning, social, ai) a gazdák adják hozzá. */}
-            <Route path="/" element={<HealthDashboard />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
+        <AuthProvider>
+          <BrowserRouter>
+            <Navbar />
+            <Routes>
+              {/* Publikus oldalak */}
+              <Route path="/" element={<HealthDashboard />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+
+              {/* VÃ©dett Ãºtvonalak â JWT szÃ¼ksÃ©ges (Identity auth) */}
+              <Route element={<ProtectedRoute />}>
+                {/* Identity (A) */}
+                <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/leaderboard" element={<LeaderboardPage />} />
+
+                {/* Learning (B) â a kÃ¶zÃ¶s AppLayout keretben */}
+                <Route
+                  path="/languages"
+                  element={
+                    <AppLayout>
+                      <LanguagesPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/lessons"
+                  element={
+                    <AppLayout>
+                      <LessonListPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/lessons/:id"
+                  element={
+                    <AppLayout>
+                      <LessonDetailPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/lessons/:id/exercises/:exerciseId"
+                  element={
+                    <AppLayout>
+                      <ExercisePlayerPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/scenario/:exerciseId"
+                  element={
+                    <AppLayout>
+                      <ScenarioChatPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/lessons/:lessonId/scenario/:exerciseId"
+                  element={
+                    <AppLayout>
+                      <ScenarioChatPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/daily"
+                  element={
+                    <AppLayout>
+                      <DailyChallengePage />
+                    </AppLayout>
+                  }
+                />
+
+                {/* Social (C) – friends, friend leaderboard, duels */}
+                <Route
+                  path="/friends"
+                  element={
+                    <AppLayout>
+                      <FriendsPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/leaderboards/friends"
+                  element={
+                    <AppLayout>
+                      <FriendsLeaderboardPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/duels"
+                  element={
+                    <AppLayout>
+                      <DuelsPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/duels/:id"
+                  element={
+                    <AppLayout>
+                      <DuelDetailPage />
+                    </AppLayout>
+                  }
+                />
+              </Route>
+
+              {/* Fallback */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </AuthProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );
