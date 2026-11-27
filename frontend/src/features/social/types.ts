@@ -98,10 +98,17 @@ export interface DuelDetailView {
   opponent: ParticipantResult | null;
 }
 
+export interface DuelOption {
+  id: string;
+  text: string;
+}
+
 export interface DuelExerciseView {
+  position: number;
   exerciseId: Uuid;
+  type: string;
   prompt: string;
-  options: string[];
+  options: DuelOption[];
   maxPoints: number;
 }
 
@@ -148,8 +155,8 @@ export interface CreateDuelBody {
 }
 
 export interface SubmitDuelAnswerBody {
-  exerciseId: Uuid;
-  answer: string;
+  position: number;
+  answer: Record<string, unknown>;
 }
 
 // --- Identity (for the add-friend username search) ---

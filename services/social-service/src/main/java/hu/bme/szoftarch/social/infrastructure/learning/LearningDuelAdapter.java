@@ -2,6 +2,7 @@ package hu.bme.szoftarch.social.infrastructure.learning;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -14,6 +15,8 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import hu.bme.szoftarch.social.domain.duel.ScoreResult;
 import hu.bme.szoftarch.social.domain.port.AnswerSubmission;
 import hu.bme.szoftarch.social.domain.port.DuelSetRef;
@@ -22,35 +25,30 @@ import hu.bme.szoftarch.social.domain.port.LearningDuelPort;
 
 /**
  * Adapter-pattern implementation of {@link LearningDuelPort} backed by the
- * Learning service internal API.
+ * Learning service internal API ({@code /internal/v1/duel-sets}).
  *
- * <p>Endpoints (design "Outbound ports"):
+ * <p>Learning's real contract:
  * <ul>
- *   <li>{@code POST /internal/v1/duel-sets} &rarr; {@link #createDuelSet}</li>
- *   <li>{@code GET  /internal/v1/duel-sets/{setId}} &rarr; {@link #fetchExercises}</li>
- *   <li>{@code POST /internal/v1/duel-sets/{setId}/answers} &rarr; {@link #scoreAnswer}
- *       (forwards the caller's {@code Idempotency-Key})</li>
+ *   <li>{@code POST /duel-sets} body {@code {duelId, languageId}} &rarr;
+ *       {@code {setId, exercises[]}} (typed presentations, position order).</li>
+ *   <li>{@code GET  /duel-sets/{setId}} &rarr; the same shape.</li>
+ *   <li>{@code POST /duel-sets/{setId}/answers} body {@code {userId, position,
+ *       answer}} &rarr; {@code {position, score, correct}}. Learning is
+ *       idempotent on {@code (setId, userId, position)}.</li>
  * </ul>
  *
- * <p>Reliability (design "Outbound adapter reliability", requirements
- * 12.1&ndash;12.3): every call carries {@code X-Internal-Api-Key} (a constant
- * default header on the {@link RestClient}) and a per-call {@code X-Correlation-Id};
- * the underlying factory enforces a 2s connect / 5s read timeout. Each of the
- * three operations is retried at most once on a timeout or a 5xx response,
- * because all three are either idempotent reads/creates or carry an
- * Idempotency-Key. After the retry budget is exhausted the adapter raises
- * {@link IntegrationException} and performs no state mutation and no compensating
- * write (requirements 5.1, 5.2, 12.4).
- *
- * <p>The internal API key, tokens, and correct answers are never logged
- * (requirement 13.2).
+ * <p>Reliability: every call carries {@code X-Internal-Api-Key} (a constant
+ * default header) and a per-call {@code X-Correlation-Id}; the factory enforces
+ * a 2s connect / 5s read timeout. Each call is retried at most once on a timeout
+ * or 5xx; a 4xx fails fast. After the budget is exhausted the adapter raises
+ * {@link IntegrationException} and performs no state mutation, so the caller
+ * leaves participant state unchanged (design "Learning failure safety").
  */
 @Component
 public class LearningDuelAdapter implements LearningDuelPort {
 
     private static final Logger log = LoggerFactory.getLogger(LearningDuelAdapter.class);
 
-    /** At most one retry on timeout/5xx => two attempts total (requirement 12.3). */
     private static final int MAX_ATTEMPTS = 2;
 
     private final RestClient restClient;
@@ -66,11 +64,14 @@ public class LearningDuelAdapter implements LearningDuelPort {
     }
 
     @Override
-    public DuelSetRef createDuelSet(UUID languageId, int exerciseCount) {
+    public DuelSetRef createDuelSet(UUID duelId, UUID languageId) {
+        if (duelId == null) {
+            throw new IllegalArgumentException("duelId must not be null");
+        }
         if (languageId == null) {
             throw new IllegalArgumentException("languageId must not be null");
         }
-        CreateDuelSetRequest body = new CreateDuelSetRequest(languageId, exerciseCount);
+        CreateDuelSetRequest body = new CreateDuelSetRequest(duelId, languageId);
         DuelSetResponse response = callWithRetry("POST /internal/v1/duel-sets", () ->
                 restClient.post()
                         .uri("/duel-sets")
@@ -79,10 +80,10 @@ public class LearningDuelAdapter implements LearningDuelPort {
                         .body(body)
                         .retrieve()
                         .body(DuelSetResponse.class));
-        if (response == null) {
+        if (response == null || response.setId() == null) {
             throw new IntegrationException("Learning returned an empty duel-set response");
         }
-        return new DuelSetRef(response.setId(), response.exerciseCount());
+        return new DuelSetRef(response.setId(), toExerciseRefs(response.exercises()));
     }
 
     @Override
@@ -90,28 +91,26 @@ public class LearningDuelAdapter implements LearningDuelPort {
         if (setId == null) {
             throw new IllegalArgumentException("setId must not be null");
         }
-        ExerciseResponse[] response = callWithRetry("GET /internal/v1/duel-sets/{setId}", () ->
+        DuelSetResponse response = callWithRetry("GET /internal/v1/duel-sets/{setId}", () ->
                 restClient.get()
                         .uri("/duel-sets/{setId}", setId)
                         .header(properties.correlationHeader(), correlationId.current())
                         .accept(MediaType.APPLICATION_JSON)
                         .retrieve()
-                        .body(ExerciseResponse[].class));
+                        .body(DuelSetResponse.class));
         if (response == null) {
             return List.of();
         }
-        List<ExerciseRef> exercises = new ArrayList<>(response.length);
-        for (ExerciseResponse e : response) {
-            exercises.add(new ExerciseRef(e.exerciseId(), e.prompt(),
-                    e.options() == null ? List.of() : e.options(), e.maxPoints()));
-        }
-        return List.copyOf(exercises);
+        return toExerciseRefs(response.exercises());
     }
 
     @Override
-    public ScoreResult scoreAnswer(UUID setId, AnswerSubmission submission, UUID idemKey) {
+    public ScoreResult scoreAnswer(UUID setId, UUID userId, AnswerSubmission submission, UUID idemKey) {
         if (setId == null) {
             throw new IllegalArgumentException("setId must not be null");
+        }
+        if (userId == null) {
+            throw new IllegalArgumentException("userId must not be null");
         }
         if (submission == null) {
             throw new IllegalArgumentException("submission must not be null");
@@ -119,44 +118,63 @@ public class LearningDuelAdapter implements LearningDuelPort {
         if (idemKey == null) {
             throw new IllegalArgumentException("idemKey must not be null");
         }
-        ScoreAnswerRequest body = new ScoreAnswerRequest(submission.exerciseId(), submission.answer());
-        ScoreAnswerResponse response = callWithRetry("POST /internal/v1/duel-sets/{setId}/answers", () ->
+        DuelAnswerRequest body = new DuelAnswerRequest(userId, submission.position(), submission.answer());
+        DuelAnswerResponse response = callWithRetry("POST /internal/v1/duel-sets/{setId}/answers", () ->
                 restClient.post()
                         .uri("/duel-sets/{setId}/answers", setId)
                         .header(properties.correlationHeader(), correlationId.current())
-                        // Forward the caller's Idempotency-Key so Learning scores at-most-once.
+                        // Forwarded for traceability; Learning is idempotent on (setId,userId,position).
                         .header("Idempotency-Key", idemKey.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(body)
                         .retrieve()
-                        .body(ScoreAnswerResponse.class));
+                        .body(DuelAnswerResponse.class));
         if (response == null) {
             throw new IntegrationException("Learning returned an empty score response");
         }
-        return new ScoreResult(response.correct(), response.awardedPoints());
+        return new ScoreResult(response.correct(), response.score());
+    }
+
+    // --- mapping ----------------------------------------------------------
+
+    /** Maps Learning's typed presentations to position-ordered {@link ExerciseRef}s. */
+    private static List<ExerciseRef> toExerciseRefs(List<ExercisePresentationResponse> exercises) {
+        if (exercises == null) {
+            return List.of();
+        }
+        List<ExerciseRef> refs = new ArrayList<>(exercises.size());
+        for (int position = 0; position < exercises.size(); position++) {
+            ExercisePresentationResponse e = exercises.get(position);
+            refs.add(new ExerciseRef(
+                    position,
+                    e.exerciseId(),
+                    e.type(),
+                    e.prompt(),
+                    optionsOf(e),
+                    e.maxPoints()));
+        }
+        return List.copyOf(refs);
     }
 
     /**
-     * Executes {@code call}, retrying at most once on a timeout or 5xx response.
-     *
-     * <p>Failure classification covers the whole {@link RestClientException}
-     * hierarchy so the production stack ({@code DefaultRestClient} +
-     * {@code SimpleClientHttpRequestFactory}) can never leak a raw
-     * {@code RestClientException}:
-     * <ul>
-     *   <li>A {@link RestClientResponseException} with a 4xx status is a
-     *       deterministic client error: it is <b>not</b> retried and is surfaced
-     *       immediately as an {@link IntegrationException} (fast-fail 4xx).</li>
-     *   <li>Everything else &mdash; a 5xx response, a {@code ResourceAccessException}
-     *       connect/read timeout, or a bare read-phase {@code RestClientException}
-     *       raised while the response is being read &mdash; is a retryable
-     *       transport error: retried at most once, then wrapped in
-     *       {@link IntegrationException} once the budget is exhausted.</li>
-     * </ul>
-     * Either way the application layer never advances state on a failed Learning
-     * call, and a raw {@code RestClientException} never escapes for the
-     * timeout/transport case (requirements 5.1, 12.4; Property 10).
+     * Extracts selectable options from the typed content for the option-based
+     * duel types (multiple choice, odd-one-out). Other types yield no options.
      */
+    private static List<ExerciseRef.Option> optionsOf(ExercisePresentationResponse e) {
+        if (e.content() == null) {
+            return List.of();
+        }
+        List<RawOption> raw = e.content().options();
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        List<ExerciseRef.Option> options = new ArrayList<>(raw.size());
+        for (RawOption o : raw) {
+            options.add(new ExerciseRef.Option(o.id(), o.text()));
+        }
+        return options;
+    }
+
     private <T> T callWithRetry(String operation, Supplier<T> call) {
         RuntimeException last = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -164,17 +182,15 @@ public class LearningDuelAdapter implements LearningDuelPort {
                 return call.get();
             } catch (RestClientResponseException http) {
                 if (http.getStatusCode().is5xxServerError()) {
-                    // 5xx server error: retryable.
                     last = http;
                     logRetryable(operation, attempt, http.getStatusCode().toString());
                 } else {
-                    // 4xx and other non-5xx status responses: not retryable, fail immediately.
-                    throw new IntegrationException(
-                            "Learning call " + operation + " failed with " + http.getStatusCode(), http);
+                    // 4xx: a client error (e.g. malformed/type-mismatched answer).
+                    // Not retryable; surfaced distinctly so the caller maps it to 400.
+                    throw new IntegrationClientException(
+                            "Learning call " + operation + " rejected with " + http.getStatusCode(), http);
                 }
             } catch (RestClientException transport) {
-                // Connect/read timeout, connection reset, or a bare read-phase
-                // RestClientException where no usable response was produced: retryable.
                 last = transport;
                 logRetryable(operation, attempt, "timeout/transport error");
             }
@@ -193,18 +209,43 @@ public class LearningDuelAdapter implements LearningDuelPort {
 
     // --- Wire DTOs (local to the adapter; never leak into the domain). ---
 
-    private record CreateDuelSetRequest(UUID languageId, int exerciseCount) {
+    private record CreateDuelSetRequest(UUID duelId, UUID languageId) {
     }
 
-    private record DuelSetResponse(UUID setId, int exerciseCount) {
+    /** Learning's {@code POST/GET duel-sets} response: {@code {setId, exercises[]}}. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record DuelSetResponse(UUID setId, List<ExercisePresentationResponse> exercises) {
     }
 
-    private record ExerciseResponse(UUID exerciseId, String prompt, List<String> options, int maxPoints) {
+    /**
+     * A subset of Learning's {@code ExercisePresentationResponse} — only the
+     * fields the duel UI needs. Unknown fields (difficulty, flags, type-specific
+     * content shapes) are ignored. {@code content.options} is read where present
+     * (multiple choice / odd-one-out); other content shapes contribute no options.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ExercisePresentationResponse(
+            UUID exerciseId,
+            String type,
+            String prompt,
+            int maxPoints,
+            RawContent content) {
     }
 
-    private record ScoreAnswerRequest(UUID exerciseId, String answer) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record RawContent(List<RawOption> options) {
     }
 
-    private record ScoreAnswerResponse(boolean correct, int awardedPoints) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record RawOption(String id, String text) {
+    }
+
+    /** Learning's answer request: {@code {userId, position, answer}}. */
+    private record DuelAnswerRequest(UUID userId, int position, Map<String, Object> answer) {
+    }
+
+    /** Learning's answer response: {@code {position, score, correct}}. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record DuelAnswerResponse(int position, int score, boolean correct) {
     }
 }

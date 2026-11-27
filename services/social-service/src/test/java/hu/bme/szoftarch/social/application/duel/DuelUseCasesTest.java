@@ -31,6 +31,7 @@ import hu.bme.szoftarch.social.infrastructure.persistence.DuelRepository;
 import hu.bme.szoftarch.social.infrastructure.persistence.FriendshipRepository;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -155,8 +156,8 @@ class DuelUseCasesTest {
             FriendPair pair = FriendPair.of(CHALLENGER, OPPONENT);
             when(friendshipRepository.existsByUserLowIdAndUserHighId(pair.low(), pair.high()))
                     .thenReturn(true);
-            when(learningDuelPort.createDuelSet(LANGUAGE_ID, 5))
-                    .thenReturn(new DuelSetRef(LEARNING_SET_ID, 5));
+            when(learningDuelPort.createDuelSet(any(UUID.class), eq(LANGUAGE_ID)))
+                    .thenReturn(new DuelSetRef(LEARNING_SET_ID, List.of()));
 
             DuelView view = duelService.create(CHALLENGER, OPPONENT, LANGUAGE_ID);
 
@@ -170,7 +171,7 @@ class DuelUseCasesTest {
             assertThat(view.expiresAt()).isEqualTo(NOW.plus(DuelStateMachine.PENDING_WINDOW));
 
             // Learning was asked for the fixed 5-exercise set.
-            verify(learningDuelPort).createDuelSet(LANGUAGE_ID, 5);
+            verify(learningDuelPort).createDuelSet(any(UUID.class), eq(LANGUAGE_ID));
 
             // The duel is persisted PENDING with the learning_set_id recorded.
             ArgumentCaptor<DuelEntity> duelCaptor = ArgumentCaptor.forClass(DuelEntity.class);
@@ -345,8 +346,9 @@ class DuelUseCasesTest {
             UUID e1 = UUID.fromString("00000000-0000-0000-0000-0000000000e1");
             UUID e2 = UUID.fromString("00000000-0000-0000-0000-0000000000e2");
             List<ExerciseRef> refs = List.of(
-                    new ExerciseRef(e1, "prompt-1", List.of("a", "b"), 10),
-                    new ExerciseRef(e2, "prompt-2", List.of(), 5));
+                    new ExerciseRef(0, e1, "MULTIPLE_CHOICE", "prompt-1",
+                            List.of(new ExerciseRef.Option("a", "A"), new ExerciseRef.Option("b", "B")), 10),
+                    new ExerciseRef(1, e2, "TRUE_FALSE", "prompt-2", List.of(), 5));
             when(learningDuelPort.fetchExercises(LEARNING_SET_ID)).thenReturn(refs);
 
             List<ExerciseView> views = duelService.exercises(CHALLENGER, DUEL_ID);
@@ -387,7 +389,7 @@ class DuelUseCasesTest {
     class SubmitAnswer {
 
         private final AnswerSubmission submission =
-                new AnswerSubmission(UUID.fromString("00000000-0000-0000-0000-0000000000e1"), "answer");
+                new AnswerSubmission(0, Map.of("selectedOptionIds", List.of("a")));
         private final UUID idemKey = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
 
         @Test
@@ -397,7 +399,7 @@ class DuelUseCasesTest {
             DuelParticipantEntity opponent = participant(OPPONENT, ParticipantStatus.IN_PROGRESS, 0, 0);
             when(duelRepository.findById(DUEL_ID)).thenReturn(Optional.of(duelEntity));
             stubParticipants(challenger, opponent);
-            when(learningDuelPort.scoreAnswer(eq(LEARNING_SET_ID), eq(submission), eq(idemKey)))
+            when(learningDuelPort.scoreAnswer(eq(LEARNING_SET_ID), any(UUID.class), any(AnswerSubmission.class), eq(idemKey)))
                     .thenReturn(new ScoreResult(true, 10));
 
             AnswerResultView result = orchestrator.submitAnswer(CHALLENGER, DUEL_ID, submission, idemKey);
@@ -414,7 +416,7 @@ class DuelUseCasesTest {
             // there is no Identity write port and no profile-point call is made.
             // The orchestrator was constructed with exactly these collaborators;
             // confirming no unexpected port exists / is called:
-            verify(learningDuelPort).scoreAnswer(LEARNING_SET_ID, submission, idemKey);
+            verify(learningDuelPort).scoreAnswer(eq(LEARNING_SET_ID), any(UUID.class), any(AnswerSubmission.class), eq(idemKey));
             org.mockito.Mockito.verifyNoMoreInteractions(learningDuelPort);
             // FriendshipRepository (the only other port-like collaborator in the
             // duel package) is never wired into the orchestrator at all.
@@ -428,7 +430,7 @@ class DuelUseCasesTest {
             DuelParticipantEntity opponent = participant(OPPONENT, ParticipantStatus.IN_PROGRESS, 0, 0);
             when(duelRepository.findById(DUEL_ID)).thenReturn(Optional.of(duelEntity));
             stubParticipants(challenger, opponent);
-            when(learningDuelPort.scoreAnswer(eq(LEARNING_SET_ID), eq(submission), eq(idemKey)))
+            when(learningDuelPort.scoreAnswer(eq(LEARNING_SET_ID), any(UUID.class), any(AnswerSubmission.class), eq(idemKey)))
                     .thenThrow(new IntegrationException("learning timed out"));
 
             assertThatThrownBy(() -> orchestrator.submitAnswer(CHALLENGER, DUEL_ID, submission, idemKey))
@@ -450,14 +452,14 @@ class DuelUseCasesTest {
             DuelParticipantEntity opponent = participant(OPPONENT, ParticipantStatus.IN_PROGRESS, 0, 0);
             when(duelRepository.findById(DUEL_ID)).thenReturn(Optional.of(duelEntity));
             stubParticipants(challenger, opponent);
-            when(learningDuelPort.scoreAnswer(any(), any(), any()))
+            when(learningDuelPort.scoreAnswer(any(), any(), any(), any()))
                     .thenReturn(new ScoreResult(false, 0));
 
             orchestrator.submitAnswer(CHALLENGER, DUEL_ID, submission, idemKey);
 
             // Req 5.2: the caller's Idempotency-Key is forwarded verbatim.
             ArgumentCaptor<UUID> keyCaptor = ArgumentCaptor.forClass(UUID.class);
-            verify(learningDuelPort).scoreAnswer(eq(LEARNING_SET_ID), eq(submission), keyCaptor.capture());
+            verify(learningDuelPort).scoreAnswer(eq(LEARNING_SET_ID), any(UUID.class), any(AnswerSubmission.class), keyCaptor.capture());
             assertThat(keyCaptor.getValue()).isEqualTo(idemKey);
         }
 
@@ -470,7 +472,7 @@ class DuelUseCasesTest {
             DuelParticipantEntity opponent = participant(OPPONENT, ParticipantStatus.COMPLETED, 20, 5);
             when(duelRepository.findById(DUEL_ID)).thenReturn(Optional.of(duelEntity));
             stubParticipants(challenger, opponent);
-            when(learningDuelPort.scoreAnswer(eq(LEARNING_SET_ID), eq(submission), eq(idemKey)))
+            when(learningDuelPort.scoreAnswer(eq(LEARNING_SET_ID), any(UUID.class), any(AnswerSubmission.class), eq(idemKey)))
                     .thenReturn(new ScoreResult(true, 10));
 
             AnswerResultView result = orchestrator.submitAnswer(CHALLENGER, DUEL_ID, submission, idemKey);
@@ -497,7 +499,7 @@ class DuelUseCasesTest {
             DuelParticipantEntity opponent = participant(OPPONENT, ParticipantStatus.IN_PROGRESS, 10, 2);
             when(duelRepository.findById(DUEL_ID)).thenReturn(Optional.of(duelEntity));
             stubParticipants(challenger, opponent);
-            when(learningDuelPort.scoreAnswer(eq(LEARNING_SET_ID), eq(submission), eq(idemKey)))
+            when(learningDuelPort.scoreAnswer(eq(LEARNING_SET_ID), any(UUID.class), any(AnswerSubmission.class), eq(idemKey)))
                     .thenReturn(new ScoreResult(true, 10));
 
             AnswerResultView result = orchestrator.submitAnswer(CHALLENGER, DUEL_ID, submission, idemKey);
@@ -515,7 +517,7 @@ class DuelUseCasesTest {
             DuelParticipantEntity opponent = participant(OPPONENT, ParticipantStatus.IN_PROGRESS, 0, 0);
             when(duelRepository.findById(DUEL_ID)).thenReturn(Optional.of(duelEntity));
             stubParticipants(challenger, opponent);
-            when(learningDuelPort.scoreAnswer(eq(LEARNING_SET_ID), eq(submission), eq(idemKey)))
+            when(learningDuelPort.scoreAnswer(eq(LEARNING_SET_ID), any(UUID.class), any(AnswerSubmission.class), eq(idemKey)))
                     .thenReturn(new ScoreResult(true, 10));
             when(duelRepository.save(any()))
                     .thenThrow(new OptimisticLockingFailureException("version conflict"));

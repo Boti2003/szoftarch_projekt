@@ -187,7 +187,7 @@ public class DuelController {
      * @param jwt            the authenticated principal (must be a participant)
      * @param id             the duel id
      * @param idempotencyKey the required idempotency key (must be a UUID)
-     * @param request        the exercise id and submitted answer
+     * @param request        the exercise position and the type-specific answer
      * @return the answer outcome and the acting participant's own progress
      */
     @PostMapping("/{id}/answers")
@@ -198,7 +198,7 @@ public class DuelController {
             @Valid @RequestBody SubmitAnswerRequest request) {
         UUID key = Idempotency.requireKeyAsUuid(idempotencyKey);
         UUID userId = CurrentUser.require(jwt);
-        AnswerSubmission submission = new AnswerSubmission(request.exerciseId(), request.answer());
+        AnswerSubmission submission = new AnswerSubmission(request.position(), request.answer());
         return duelAnswerOrchestrator.submitAnswer(userId, id, submission, key);
     }
 

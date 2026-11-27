@@ -120,12 +120,14 @@ public class DuelService {
             throw new ForbiddenException("can only duel an accepted friend");
         }
 
+        // Learning keys the duel set on Social's duelId, so generate it first.
+        UUID duelId = UUID.randomUUID();
+
         // Delegate fixed exercise-set generation to Learning before persisting.
-        DuelSetRef set = learningDuelPort.createDuelSet(languageId, EXERCISE_COUNT);
+        DuelSetRef set = learningDuelPort.createDuelSet(duelId, languageId);
 
         Instant now = clock.now();
         Instant expiresAt = now.plus(PENDING_WINDOW);
-        UUID duelId = UUID.randomUUID();
 
         DuelEntity duel = new DuelEntity(
                 duelId, challengerId, opponentId, languageId,
@@ -367,6 +369,10 @@ public class DuelService {
     }
 
     private static ExerciseView toExerciseView(ExerciseRef ref) {
-        return new ExerciseView(ref.exerciseId(), ref.prompt(), ref.options(), ref.maxPoints());
+        List<ExerciseView.Option> options = ref.options().stream()
+                .map(o -> new ExerciseView.Option(o.id(), o.text()))
+                .toList();
+        return new ExerciseView(
+                ref.position(), ref.exerciseId(), ref.type(), ref.prompt(), options, ref.maxPoints());
     }
 }

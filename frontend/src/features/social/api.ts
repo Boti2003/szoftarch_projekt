@@ -105,12 +105,12 @@ export function getDuelExercises(id: Uuid): Promise<DuelExerciseView[]> {
 
 export function submitDuelAnswer(
   id: Uuid,
-  exerciseId: Uuid,
-  answer: string,
+  position: number,
+  answer: Record<string, unknown>,
   idempotencyKey: string,
 ): Promise<AnswerResultView> {
   return apiSend<AnswerResultView>('POST', `/duels/${id}/answers`, {
-    body: { exerciseId, answer },
+    body: { position, answer },
     idempotencyKey,
   });
 }

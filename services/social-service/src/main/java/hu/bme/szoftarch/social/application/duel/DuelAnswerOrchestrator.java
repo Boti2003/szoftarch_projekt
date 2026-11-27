@@ -3,6 +3,7 @@ package hu.bme.szoftarch.social.application.duel;
 import hu.bme.szoftarch.social.domain.common.Clock;
 import hu.bme.szoftarch.social.domain.common.ConcurrentUpdateException;
 import hu.bme.szoftarch.social.domain.common.ForbiddenException;
+import hu.bme.szoftarch.social.domain.common.InvalidAnswerException;
 import hu.bme.szoftarch.social.domain.common.InvalidStateException;
 import hu.bme.szoftarch.social.domain.common.UpstreamUnavailableException;
 import hu.bme.szoftarch.social.domain.duel.Duel;
@@ -14,6 +15,7 @@ import hu.bme.szoftarch.social.domain.duel.ParticipantStatus;
 import hu.bme.szoftarch.social.domain.duel.ScoreResult;
 import hu.bme.szoftarch.social.domain.port.AnswerSubmission;
 import hu.bme.szoftarch.social.domain.port.LearningDuelPort;
+import hu.bme.szoftarch.social.infrastructure.learning.IntegrationClientException;
 import hu.bme.szoftarch.social.infrastructure.learning.IntegrationException;
 import hu.bme.szoftarch.social.infrastructure.persistence.DuelEntity;
 import hu.bme.szoftarch.social.infrastructure.persistence.DuelParticipantEntity;
@@ -153,7 +155,12 @@ public class DuelAnswerOrchestrator {
         // 3. Delegate authoritative scoring to Learning (idempotent via the key).
         //    This runs before any participant field is touched, so a Learning
         //    failure leaves score/answeredCount/status unchanged (Property 10).
-        ScoreResult score = scoreViaLearning(duelEntity.getLearningSetId(), submission, idempotencyKey);
+        // The position is the participant's current answer index (answers are
+        // submitted in order), regardless of any position the client supplied.
+        int position = self.getAnsweredCount();
+        AnswerSubmission positioned = new AnswerSubmission(position, submission.answer());
+        ScoreResult score = scoreViaLearning(
+                duelEntity.getLearningSetId(), userId, positioned, idempotencyKey);
 
         // 4. Apply the award and advance progress on the entity (the source of
         //    truth), then drive COMPLETE_PARTICIPANT through the state machine at
@@ -193,9 +200,15 @@ public class DuelAnswerOrchestrator {
      * {@link UpstreamUnavailableException}. No participant state is mutated
      * before or during this call, so a failure here advances nothing.
      */
-    private ScoreResult scoreViaLearning(UUID learningSetId, AnswerSubmission submission, UUID idempotencyKey) {
+    private ScoreResult scoreViaLearning(UUID learningSetId, UUID userId,
+                                         AnswerSubmission submission, UUID idempotencyKey) {
         try {
-            return learningDuelPort.scoreAnswer(learningSetId, submission, idempotencyKey);
+            return learningDuelPort.scoreAnswer(learningSetId, userId, submission, idempotencyKey);
+        } catch (IntegrationClientException badAnswer) {
+            // Learning rejected the answer as invalid for the exercise (4xx):
+            // a client error, surfaced as 400, not an upstream outage.
+            throw new InvalidAnswerException(
+                    "the submitted answer is not valid for this exercise");
         } catch (IntegrationException upstream) {
             // Reliability rule: do NOT advance participant state on Learning error.
             throw new UpstreamUnavailableException(

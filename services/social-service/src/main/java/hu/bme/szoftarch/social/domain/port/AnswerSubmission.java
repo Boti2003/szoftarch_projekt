@@ -1,17 +1,23 @@
 package hu.bme.szoftarch.social.domain.port;
 
-import java.util.UUID;
+import java.util.Map;
 
 /**
  * A participant's answer to a single duel exercise, forwarded to the Learning
  * service for authoritative scoring.
  *
- * <p>Used by {@link LearningDuelPort#scoreAnswer}. The {@code answer} carries
- * the submitted value (a selected option or free text); Learning owns the
- * grading and returns a score.
+ * <p>Learning scores by {@code position} (the exercise's index in the duel set)
+ * and expects a type-specific answer JSON object (e.g.
+ * {@code {"selectedOptionIds":["a"]}} for multiple choice). To keep the domain
+ * free of any JSON library, {@code answer} is a plain {@link Map} the API layer
+ * builds from the request; the adapter serializes it as the answer body.
  *
- * @param exerciseId the exercise being answered
- * @param answer     the submitted answer value
+ * @param position the exercise position being answered (0-based)
+ * @param answer   the type-specific answer payload; never {@code null}
  */
-public record AnswerSubmission(UUID exerciseId, String answer) {
+public record AnswerSubmission(int position, Map<String, Object> answer) {
+
+    public AnswerSubmission {
+        answer = (answer == null) ? Map.of() : Map.copyOf(answer);
+    }
 }

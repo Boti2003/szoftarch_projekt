@@ -193,8 +193,14 @@ function DuelPlay({ duelId, answeredCount }: { duelId: string; answeredCount: nu
     if (answer.trim() === '') {
       return;
     }
+    // Option-based duel exercises expect { selectedOptionIds: [id] }; the
+    // free-text fallback sends a plain { answer } payload.
+    const payload: Record<string, unknown> =
+      current.options.length > 0
+        ? { selectedOptionIds: [answer] }
+        : { answer: answer.trim() };
     submit.mutate(
-      { exerciseId: current.exerciseId, answer: answer.trim() },
+      { position: current.position, answer: payload },
       {
         onSuccess: (result) => {
           setLastCorrect(result.correct);
@@ -222,7 +228,7 @@ function DuelPlay({ duelId, answeredCount }: { duelId: string; answeredCount: nu
       {current.options.length > 0 ? (
         <RadioGroup value={answer} onChange={(e) => setAnswer(e.target.value)}>
           {current.options.map((opt) => (
-            <FormControlLabel key={opt} value={opt} control={<Radio />} label={opt} />
+            <FormControlLabel key={opt.id} value={opt.id} control={<Radio />} label={opt.text} />
           ))}
         </RadioGroup>
       ) : (

@@ -6,6 +6,7 @@ import hu.bme.szoftarch.social.domain.common.DomainException;
 import hu.bme.szoftarch.social.domain.common.DuelExpiredException;
 import hu.bme.szoftarch.social.domain.common.ForbiddenException;
 import hu.bme.szoftarch.social.domain.common.IdempotencyKeyRequiredException;
+import hu.bme.szoftarch.social.domain.common.InvalidAnswerException;
 import hu.bme.szoftarch.social.domain.common.InvalidStateException;
 import hu.bme.szoftarch.social.domain.common.RequestExistsException;
 import hu.bme.szoftarch.social.domain.common.SelfRequestException;
@@ -183,7 +184,8 @@ public class GlobalExceptionHandler {
      */
     private static HttpStatus statusForCode(String code) {
         return switch (code) {
-            case SelfRequestException.CODE, IdempotencyKeyRequiredException.CODE -> HttpStatus.BAD_REQUEST;
+            case SelfRequestException.CODE, IdempotencyKeyRequiredException.CODE,
+                    InvalidAnswerException.CODE -> HttpStatus.BAD_REQUEST;
             case ForbiddenException.CODE -> HttpStatus.FORBIDDEN;
             case UserNotFoundException.CODE -> HttpStatus.NOT_FOUND;
             case AlreadyFriendsException.CODE,
@@ -199,6 +201,7 @@ public class GlobalExceptionHandler {
     private static String titleFor(String code) {
         return switch (code) {
             case SelfRequestException.CODE -> "Cannot friend yourself";
+            case InvalidAnswerException.CODE -> "Invalid answer";
             case IdempotencyKeyRequiredException.CODE -> "Idempotency-Key required";
             case ForbiddenException.CODE -> "Forbidden";
             case UserNotFoundException.CODE -> "User not found";

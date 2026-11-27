@@ -198,15 +198,15 @@ export function useRejectDuel() {
 }
 
 interface SubmitDuelAnswerVars {
-  exerciseId: Uuid;
-  answer: string;
+  position: number;
+  answer: Record<string, unknown>;
 }
 
 export function useSubmitDuelAnswer(duelId: Uuid) {
   const queryClient = useQueryClient();
   return useMutation<AnswerResultView, Error, SubmitDuelAnswerVars>({
-    mutationFn: ({ exerciseId, answer }: SubmitDuelAnswerVars) =>
-      submitDuelAnswer(duelId, exerciseId, answer, newIdempotencyKey()),
+    mutationFn: ({ position, answer }: SubmitDuelAnswerVars) =>
+      submitDuelAnswer(duelId, position, answer, newIdempotencyKey()),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: duelQueryKey(duelId) });
       void queryClient.invalidateQueries({ queryKey: duelsQueryKey });

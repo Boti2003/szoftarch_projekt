@@ -231,8 +231,7 @@ class DuelHappyPathIT {
 
         // Learning was asked to build the fixed five-exercise set.
         wireMock.verify(postRequestedFor(urlEqualTo("/internal/v1/duel-sets"))
-                .withRequestBody(equalToJson(
-                        "{\"languageId\":\"" + languageId + "\",\"exerciseCount\":5}")));
+                .withRequestBody(matching(".*\"languageId\":\"" + languageId + "\".*")));
 
         // Persisted: PENDING with the learning set id, both participants NOT_STARTED.
         assertThat(duelRepository.findById(duelId)).hasValueSatisfying(d -> {
@@ -272,7 +271,7 @@ class DuelHappyPathIT {
 
         // --- 4. U1 answers all five correctly (50 pts), completing -------
         for (int i = 0; i < 5; i++) {
-            submitAnswer(duelId, u1, exerciseIds.get(i), CORRECT);
+            submitAnswer(duelId, u1, i, CORRECT);
         }
         // U1 has completed its side; the duel is still IN_PROGRESS (U2 pending).
         DuelParticipantEntity u1Participant = participant(duelId, u1);
@@ -285,7 +284,7 @@ class DuelHappyPathIT {
         // --- 4b. U2 answers two correct, three wrong (20 pts), completing --
         String[] u2Answers = {CORRECT, CORRECT, WRONG, WRONG, WRONG};
         for (int i = 0; i < 5; i++) {
-            MvcResult answer = submitAnswer(duelId, u2, exerciseIds.get(i), u2Answers[i]);
+            MvcResult answer = submitAnswer(duelId, u2, i, u2Answers[i]);
             if (i == 4) {
                 // The fifth answer completes U2 and, with U1 already done, the duel.
                 JsonNode body = readJson(answer);
@@ -346,10 +345,10 @@ class DuelHappyPathIT {
         fetchExerciseIds(duelId, u2);
 
         for (int i = 0; i < 5; i++) {
-            submitAnswer(duelId, u1, exerciseIds.get(i), CORRECT);
+            submitAnswer(duelId, u1, i, CORRECT);
         }
         for (int i = 0; i < 5; i++) {
-            submitAnswer(duelId, u2, exerciseIds.get(i), CORRECT);
+            submitAnswer(duelId, u2, i, CORRECT);
         }
 
         assertThat(duelRepository.findById(duelId)).hasValueSatisfying(d -> {
@@ -375,14 +374,15 @@ class DuelHappyPathIT {
                 .toList();
     }
 
-    private MvcResult submitAnswer(UUID duelId, UUID actor, UUID exerciseId, String answer)
+    private MvcResult submitAnswer(UUID duelId, UUID actor, int position, String answer)
             throws Exception {
         return mockMvc.perform(post("/api/v1/duels/{id}/answers", duelId)
                         .with(jwt().jwt(j -> j.subject(actor.toString())))
                         .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType("application/json")
                         .content(objectMapper.writeValueAsString(
-                                new SubmitAnswerRequest(exerciseId, answer))))
+                                new SubmitAnswerRequest(position,
+                                        java.util.Map.of("selectedOptionIds", java.util.List.of(answer))))))
                 .andExpect(status().isOk())
                 .andReturn();
     }
@@ -403,11 +403,13 @@ class DuelHappyPathIT {
 
     /** Both users exist according to Identity (covers the create-time check). */
     private void stubIdentityExistsTrue() {
-        wireMock.stubFor(WireMock.get(urlMatching("/internal/v1/users/[0-9a-fA-F-]+/exists"))
+        // Social derives existence from the batch public-stats call.
+        wireMock.stubFor(WireMock.post(urlEqualTo("/internal/v1/users/public-stats:batch"))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("{\"exists\":true}")));
+                        .withBody("[{\"id\":\"" + u1 + "\",\"username\":\"u1\",\"displayName\":\"U1\",\"level\":1,\"totalPoints\":0},"
+                                + "{\"id\":\"" + u2 + "\",\"username\":\"u2\",\"displayName\":\"U2\",\"level\":1,\"totalPoints\":0}]")));
     }
 
     /**
@@ -419,42 +421,47 @@ class DuelHappyPathIT {
      * </ul>
      */
     private void stubLearning() {
-        wireMock.stubFor(WireMock.post(urlEqualTo("/internal/v1/duel-sets"))
-                .willReturn(aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("{\"setId\":\"" + learningSetId + "\",\"exerciseCount\":5}")));
-
+        // Learning returns {setId, exercises[]} with typed presentations in
+        // position order; both participants get the same five exercises.
         StringBuilder exercises = new StringBuilder("[");
         for (int i = 0; i < exerciseIds.size(); i++) {
             if (i > 0) {
                 exercises.append(',');
             }
             exercises.append("{\"exerciseId\":\"").append(exerciseIds.get(i))
-                    .append("\",\"prompt\":\"q").append(i)
-                    .append("\",\"options\":[\"a\",\"b\"],\"maxPoints\":").append(MAX_POINTS).append('}');
+                    .append("\",\"type\":\"MULTIPLE_CHOICE\",\"prompt\":\"q").append(i)
+                    .append("\",\"maxPoints\":").append(MAX_POINTS)
+                    .append(",\"content\":{\"multiSelect\":false,\"options\":"
+                            + "[{\"id\":\"correct\",\"text\":\"C\"},{\"id\":\"wrong\",\"text\":\"W\"}]}}");
         }
         exercises.append(']');
+        String setBody = "{\"setId\":\"" + learningSetId + "\",\"exercises\":" + exercises + "}";
+
+        wireMock.stubFor(WireMock.post(urlEqualTo("/internal/v1/duel-sets"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(setBody)));
         wireMock.stubFor(WireMock.get(urlEqualTo("/internal/v1/duel-sets/" + learningSetId))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody(exercises.toString())));
+                        .withBody(setBody)));
 
-        // Correct answer => full points; anything else => zero. Deterministic,
-        // answer-driven scoring makes the winner independent of request timing.
+        // Answer scoring is deterministic by the submitted option id: "correct"
+        // -> full points, anything else -> 0. Returns {position, score, correct}.
         wireMock.stubFor(WireMock.post(urlPathMatching("/internal/v1/duel-sets/[0-9a-fA-F-]+/answers"))
-                .withRequestBody(matching(".*\"answer\":\"" + CORRECT + "\".*"))
+                .withRequestBody(matching(".*\"selectedOptionIds\":\\[\"" + CORRECT + "\"\\].*"))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("{\"correct\":true,\"awardedPoints\":" + MAX_POINTS + "}")));
+                        .withBody("{\"position\":0,\"score\":" + MAX_POINTS + ",\"correct\":true}")));
         wireMock.stubFor(WireMock.post(urlPathMatching("/internal/v1/duel-sets/[0-9a-fA-F-]+/answers"))
-                .withRequestBody(matching(".*\"answer\":\"" + WRONG + "\".*"))
+                .withRequestBody(matching(".*\"selectedOptionIds\":\\[\"" + WRONG + "\"\\].*"))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("{\"correct\":false,\"awardedPoints\":0}")));
+                        .withBody("{\"position\":0,\"score\":0,\"correct\":false}")));
     }
 
     /**

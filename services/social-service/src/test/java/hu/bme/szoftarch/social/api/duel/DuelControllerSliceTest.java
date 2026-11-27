@@ -31,6 +31,8 @@ import hu.bme.szoftarch.social.domain.duel.ParticipantStatus;
 import hu.bme.szoftarch.social.domain.port.AnswerSubmission;
 import java.time.Instant;
 import java.util.List;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -128,7 +130,6 @@ class DuelControllerSliceTest {
     void submitAnswerReturns200AndForwardsSubmissionAndUuidKey() throws Exception {
         UUID actor = UUID.randomUUID();
         UUID duelId = UUID.randomUUID();
-        UUID exerciseId = UUID.randomUUID();
         when(duelAnswerOrchestrator.submitAnswer(eq(actor), eq(duelId),
                 any(AnswerSubmission.class), eq(UUID.fromString(UUID_KEY))))
                 .thenReturn(new AnswerResultView(duelId, true, 10, 10, 1,
@@ -139,7 +140,7 @@ class DuelControllerSliceTest {
                         .header("Idempotency-Key", UUID_KEY)
                         .contentType("application/json")
                         .content(objectMapper.writeValueAsString(
-                                new SubmitAnswerRequest(exerciseId, "answer-text"))))
+                                new SubmitAnswerRequest(0, Map.of("selectedOptionIds", List.of("a"))))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.duelId").value(duelId.toString()))
                 .andExpect(jsonPath("$.correct").value(true))
@@ -149,8 +150,8 @@ class DuelControllerSliceTest {
                 ArgumentCaptor.forClass(AnswerSubmission.class);
         verify(duelAnswerOrchestrator).submitAnswer(eq(actor), eq(duelId),
                 submissionCaptor.capture(), eq(UUID.fromString(UUID_KEY)));
-        assertThat(submissionCaptor.getValue().exerciseId()).isEqualTo(exerciseId);
-        assertThat(submissionCaptor.getValue().answer()).isEqualTo("answer-text");
+        assertThat(submissionCaptor.getValue().position()).isEqualTo(0);
+        assertThat(submissionCaptor.getValue().answer()).containsEntry("selectedOptionIds", List.of("a"));
     }
 
     // --- 2. DTO validation -> 400 VALIDATION_FAILED ------------------------
@@ -181,7 +182,7 @@ class DuelControllerSliceTest {
                         .with(jwt().jwt(j -> j.subject(actor.toString())))
                         .header("Idempotency-Key", UUID_KEY)
                         .contentType("application/json")
-                        .content("{\"exerciseId\":\"" + UUID.randomUUID() + "\"}"))
+                        .content("{\"position\":0}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.fieldErrors.answer").exists());
@@ -195,7 +196,6 @@ class DuelControllerSliceTest {
     void upstreamFailureIsRenderedAsProblemJsonWith503() throws Exception {
         UUID actor = UUID.randomUUID();
         UUID duelId = UUID.randomUUID();
-        UUID exerciseId = UUID.randomUUID();
         when(duelAnswerOrchestrator.submitAnswer(any(), any(), any(), any()))
                 .thenThrow(new UpstreamUnavailableException("scoring is temporarily unavailable"));
 
@@ -204,7 +204,7 @@ class DuelControllerSliceTest {
                         .header("Idempotency-Key", UUID_KEY)
                         .contentType("application/json")
                         .content(objectMapper.writeValueAsString(
-                                new SubmitAnswerRequest(exerciseId, "x"))))
+                                new SubmitAnswerRequest(0, Map.of("answer", true)))))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
                 .andExpect(jsonPath("$.code").value("UPSTREAM_UNAVAILABLE"))
@@ -287,7 +287,7 @@ class DuelControllerSliceTest {
                         .header("Idempotency-Key", "not-a-uuid")
                         .contentType("application/json")
                         .content(objectMapper.writeValueAsString(
-                                new SubmitAnswerRequest(UUID.randomUUID(), "x"))))
+                                new SubmitAnswerRequest(0, Map.of("answer", true)))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"));
 
@@ -339,7 +339,6 @@ class DuelControllerSliceTest {
     void submitAnswerDerivesActorFromJwtSubNotFromPath() throws Exception {
         UUID sub = UUID.randomUUID();
         UUID duelId = UUID.randomUUID();
-        UUID exerciseId = UUID.randomUUID();
         when(duelAnswerOrchestrator.submitAnswer(any(), any(), any(), any()))
                 .thenReturn(new AnswerResultView(duelId, false, 0, 0, 1,
                         ParticipantStatus.IN_PROGRESS, DuelStatus.IN_PROGRESS, null));
@@ -349,7 +348,7 @@ class DuelControllerSliceTest {
                         .header("Idempotency-Key", UUID_KEY)
                         .contentType("application/json")
                         .content(objectMapper.writeValueAsString(
-                                new SubmitAnswerRequest(exerciseId, "x"))))
+                                new SubmitAnswerRequest(0, Map.of("answer", true)))))
                 .andExpect(status().isOk());
 
         ArgumentCaptor<UUID> actorCaptor = ArgumentCaptor.forClass(UUID.class);
