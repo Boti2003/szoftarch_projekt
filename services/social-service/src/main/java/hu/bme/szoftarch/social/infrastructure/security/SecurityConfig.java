@@ -1,6 +1,13 @@
 package hu.bme.szoftarch.social.infrastructure.security;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.security.converter.RsaKeyConverters;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.security.interfaces.RSAPublicKey;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -10,12 +17,10 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
-import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
-import org.springframework.security.oauth2.jwt.SupplierJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.web.AuthenticationEntryPoint;
@@ -42,14 +47,13 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
  * </ul>
  *
  * <h2>Token validation</h2>
- * The {@link JwtDecoder} is built from the standard Boot property
- * {@code spring.security.oauth2.resourceserver.jwt.jwk-set-uri} and pinned to
- * {@code RS256}, so only RS256-signed tokens whose key is published by Identity's
- * JWKS are accepted. The decoder is constructed lazily (it fetches the JWKS on
- * first validation, not at startup) so the application context loads without a
- * live Identity. Standard timestamp validation ({@code exp}/{@code nbf}) plus a
- * non-blank {@code sub} requirement are enforced; an invalid, expired, or
- * missing token is rejected with 401 {@code UNAUTHENTICATED} by
+ * The {@link JwtDecoder} validates RS256 tokens with the shared PUBLIC key
+ * loaded from {@code social.security.jwt.public-key} (an X.509 PEM mounted from
+ * the project secrets, default {@code file:/run/secrets/jwt-public.pem}). This
+ * matches how the other services validate tokens; Identity holds the private
+ * key. Standard timestamp validation ({@code exp}/{@code nbf}) plus a non-blank
+ * {@code sub} requirement are enforced; an invalid, expired, or missing token is
+ * rejected with 401 {@code UNAUTHENTICATED} by
  * {@link ProblemAuthenticationEntryPoint}.
  *
  * <h2>Principal / authorities</h2>
@@ -74,11 +78,14 @@ public class SecurityConfig {
         "/swagger-ui.html"
     };
 
-    private final String jwkSetUri;
+    private final Resource publicKey;
+    private final String issuer;
 
     public SecurityConfig(
-            @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri}") String jwkSetUri) {
-        this.jwkSetUri = jwkSetUri;
+            @Value("${social.security.jwt.public-key:file:/run/secrets/jwt-public.pem}") Resource publicKey,
+            @Value("${social.security.jwt.issuer:}") String issuer) {
+        this.publicKey = publicKey;
+        this.issuer = issuer;
     }
 
     @Bean
@@ -111,25 +118,32 @@ public class SecurityConfig {
     }
 
     /**
-     * RS256-only {@link JwtDecoder} backed by Identity's JWKS. Built lazily via a
-     * {@link SupplierJwtDecoder} so the JWKS is not fetched until the first token
-     * is validated, letting the context start without a reachable Identity.
+     * RS256 {@link JwtDecoder} using the shared public key (X.509 PEM). The
+     * matching private key is the Identity service secret. Enforces default
+     * timestamp validation (plus issuer when configured) and a non-blank
+     * {@code sub}.
      */
     @Bean
     public JwtDecoder jwtDecoder() {
-        return new SupplierJwtDecoder(this::buildDecoder);
-    }
-
-    private JwtDecoder buildDecoder() {
-        NimbusJwtDecoder decoder = NimbusJwtDecoder
-            .withJwkSetUri(jwkSetUri)
-            .jwsAlgorithm(SignatureAlgorithm.RS256)
-            .build();
-        OAuth2TokenValidator<Jwt> defaults = JwtValidators.createDefault();
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(readPublicKey()).build();
+        OAuth2TokenValidator<Jwt> timestamps = (issuer == null || issuer.isBlank())
+            ? JwtValidators.createDefault()
+            : JwtValidators.createDefaultWithIssuer(issuer);
         OAuth2TokenValidator<Jwt> hasSubject = new JwtClaimValidator<String>("sub",
             subject -> subject != null && !subject.isBlank());
-        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(defaults, hasSubject));
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(timestamps, hasSubject));
         return decoder;
+    }
+
+    private RSAPublicKey readPublicKey() {
+        if (publicKey == null) {
+            throw new IllegalStateException("social.security.jwt.public-key is not configured");
+        }
+        try (InputStream in = publicKey.getInputStream()) {
+            return (RSAPublicKey) RsaKeyConverters.x509().convert(in);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Unable to read JWT public key", e);
+        }
     }
 
     @Bean

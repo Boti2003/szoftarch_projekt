@@ -3,6 +3,7 @@ package hu.bme.szoftarch.social.infrastructure.identity;
 import hu.bme.szoftarch.social.domain.port.IdentityStatsPort;
 import hu.bme.szoftarch.social.domain.port.PublicStats;
 import hu.bme.szoftarch.social.domain.port.UserExistencePort;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
@@ -11,8 +12,8 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
-import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -27,7 +28,8 @@ import java.util.function.Supplier;
  * and {@link IdentityStatsPort} outbound ports.
  *
  * <ul>
- *   <li>{@code exists} &rarr; {@code GET /internal/v1/users/{id}/exists}</li>
+ *   <li>{@code exists} &rarr; derived from the batch public-stats call
+ *       (Identity exposes no dedicated existence endpoint).</li>
  *   <li>{@code batchStats} &rarr; {@code POST /internal/v1/users/public-stats:batch},
  *       chunked to at most {@code batchSize} (&le; 100) ids per call, results merged.</li>
  * </ul>
@@ -74,19 +76,9 @@ public class IdentityStatsAdapter implements UserExistencePort, IdentityStatsPor
         if (userId == null) {
             throw new IllegalArgumentException("userId must not be null");
         }
-        return callIdempotent("GET /internal/v1/users/{id}/exists", () -> {
-            try {
-                ExistsResponse body = restClient.get()
-                        .uri("/internal/v1/users/{id}/exists", userId)
-                        .retrieve()
-                        .body(ExistsResponse.class);
-                // 200 with a parseable body: trust its flag. 200 with no body: treat as present.
-                return body == null || body.exists() == null ? Boolean.TRUE : body.exists();
-            } catch (HttpClientErrorException.NotFound notFound) {
-                // REST-style "unknown user" -> absent.
-                return Boolean.FALSE;
-            }
-        });
+        // Identity has no dedicated existence endpoint; a user exists iff the
+        // batch public-stats call returns a row for the id.
+        return batchStats(Set.of(userId)).containsKey(userId);
     }
 
     @Override
@@ -143,11 +135,15 @@ public class IdentityStatsAdapter implements UserExistencePort, IdentityStatsPor
         for (int attempt = 1; attempt <= attempts; attempt++) {
             try {
                 return call.get();
-            } catch (ResourceAccessException e) {
-                // connect/read timeout or other I/O error
-                last = e;
-            } catch (HttpServerErrorException e) {
-                // 5xx upstream
+            } catch (HttpClientErrorException e) {
+                // 4xx: a definitive client answer, not a transient failure. Do not
+                // retry; surface it immediately as an integration failure.
+                throw new IntegrationException(
+                        "Identity call failed (client error): " + operation, e);
+            } catch (RestClientException e) {
+                // Retryable transport/upstream failure: connect/read timeout
+                // (ResourceAccessException), 5xx (HttpServerErrorException), or a
+                // bare RestClientException raised while reading the response.
                 last = e;
             }
             if (attempt < attempts) {
@@ -171,11 +167,15 @@ public class IdentityStatsAdapter implements UserExistencePort, IdentityStatsPor
     record BatchStatsRequest(List<UUID> userIds) {
     }
 
-    /** Response row for a single user's public stats. */
-    record PublicStatsResponse(UUID userId, String displayName, long points, int level) {
-    }
-
-    /** Response body for the existence check. */
-    record ExistsResponse(Boolean exists) {
+    /**
+     * Response row for one user's public stats. Identity returns PublicProfileDto
+     * ({id, username, displayName, level, totalPoints}); map id->userId and
+     * totalPoints->points explicitly.
+     */
+    record PublicStatsResponse(
+            @JsonProperty("id") UUID userId,
+            String displayName,
+            @JsonProperty("totalPoints") long points,
+            int level) {
     }
 }

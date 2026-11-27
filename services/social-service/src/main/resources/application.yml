@@ -20,19 +20,16 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          # Identity's JWKS endpoint publishing the RS256 public keys used to
-          # validate inbound access tokens. The decoder is built lazily and
-          # fetches this on first validation, so the context starts without a
-          # live Identity. Overridden per environment via IDENTITY_JWKS_URI.
-          jwk-set-uri: ${IDENTITY_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
 
 social:
   # Correlation-id header propagated end to end for traceability.
   correlation-header: ${CORRELATION_HEADER:X-Correlation-Id}
+  # RS256 validation uses the shared PUBLIC key (X.509 PEM) mounted from the
+  # project secrets; Identity holds the private key. Matches the other services.
+  security:
+    jwt:
+      public-key: ${JWT_PUBLIC_KEY_PATH:file:/run/secrets/jwt-public.pem}
+      issuer: ${JWT_ISSUER:}
   internal:
     # Shared service-to-service key sent as X-Internal-Api-Key (secret; never logged).
     api-key: ${INTERNAL_API_KEY:change-me-at-least-32-bytes-random-value}

@@ -123,7 +123,16 @@ services:
       SOCIAL_DB_PASSWORD: ${SOCIAL_DB_PASSWORD}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       IDENTITY_URL: http://identity-service:8080
+      # Social reads Identity internal API base from IDENTITY_INTERNAL_BASE_URL
+      # (the adapter default is localhost:8081, wrong inside the container).
+      IDENTITY_INTERNAL_BASE_URL: http://identity-service:8080
       LEARNING_URL: http://learning-service:8080
+      # RS256 public key for JWT validation (shared secret; Identity holds the private key).
+      JWT_PUBLIC_KEY_PATH: file:/run/secrets/jwt-public.pem
+      JWT_ISSUER: ${JWT_ISSUER}
+    volumes:
+      # Least privilege: only the PUBLIC key is mounted for signature checking.
+      - ./secrets/jwt-public.pem:/run/secrets/jwt-public.pem:ro
     depends_on:
       postgres:
         condition: service_healthy

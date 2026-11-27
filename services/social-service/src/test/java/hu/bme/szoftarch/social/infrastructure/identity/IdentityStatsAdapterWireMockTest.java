@@ -17,13 +17,10 @@ import java.util.UUID;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
-import static com.github.tomakehurst.wiremock.client.WireMock.get;
-import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
-import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,19 +29,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * WireMock tests for {@link IdentityStatsAdapter} exercising the real
  * {@link IdentityHttpClientConfig} transport (request factory with the mandated
  * timeouts + the header-stamping interceptor). The adapter is wired against a
- * live WireMock server instead of a full Spring context so the test stays light
- * while still driving the real {@link RestClient} interceptor and timeout path.
+ * live WireMock server instead of a full Spring context.
  *
- * <p>Covers task 6.2: batch chunking at &le;100 ids, the
- * {@code X-Internal-Api-Key}/{@code X-Correlation-Id} headers, the 2s/5s timeout
- * configuration with a single retry on idempotent reads, and the
- * {@code exists} 200/404 mapping.
+ * <p>Both ports funnel through Identity's batch public-stats endpoint: Identity
+ * exposes no dedicated existence endpoint, so {@code exists} is derived from a
+ * single-id batch call (a user exists iff a stats row is returned). Covers batch
+ * chunking at &le;100 ids, the {@code X-Internal-Api-Key}/{@code X-Correlation-Id}
+ * headers, the timeout-then-retry path, and the response field mapping
+ * ({@code id}->userId, {@code totalPoints}->points).
  */
 class IdentityStatsAdapterWireMockTest {
 
     private static final String API_KEY = "test-internal-key-123";
     private static final String CORRELATION_HEADER = "X-Correlation-Id";
-    private static final String EXISTS_PATH = "/internal/v1/users/([0-9a-fA-F-]+)/exists";
     private static final String BATCH_PATH = "/internal/v1/users/public-stats:batch";
 
     private WireMockServer wireMock;
@@ -60,12 +57,6 @@ class IdentityStatsAdapterWireMockTest {
         wireMock.stop();
     }
 
-    /**
-     * Builds the adapter via the real config beans, pointing the Identity base
-     * URL at the running WireMock server. {@code readTimeout} is parameterised
-     * so timeout tests can stay fast while still exercising the real
-     * timeout-then-retry path; functional tests use the mandated 2s/5s values.
-     */
     private IdentityStatsAdapter newAdapter(Duration connectTimeout, Duration readTimeout, int batchSize) {
         IdentityClientProperties properties = new IdentityClientProperties(
                 wireMock.baseUrl(),
@@ -82,7 +73,6 @@ class IdentityStatsAdapterWireMockTest {
         return new IdentityStatsAdapter(restClient, properties);
     }
 
-    /** Adapter with the production-mandated 2s connect / 5s read timeouts. */
     private IdentityStatsAdapter newAdapter() {
         return newAdapter(Duration.ofSeconds(2), Duration.ofSeconds(5), 100);
     }
@@ -93,20 +83,14 @@ class IdentityStatsAdapterWireMockTest {
 
     @Test
     void batchStats_with_more_than_100_ids_chunks_into_multiple_calls_and_merges() {
-        // 150 ids -> two chunks of 100 + 50 (batchSize 100).
         Set<UUID> ids = new LinkedHashSet<>();
         for (int i = 0; i < 150; i++) {
             ids.add(UUID.randomUUID());
         }
-
-        // Build an explicit JSON array keyed to the exact ids, split into the two
-        // chunks the adapter is expected to produce (first 100 ids, then 50).
         java.util.List<UUID> ordered = new java.util.ArrayList<>(ids);
         String firstChunkBody = statsArray(ordered.subList(0, 100));
         String secondChunkBody = statsArray(ordered.subList(100, 150));
 
-        // Match the first chunk by its exact userIds payload and the second by
-        // the complementary one, so we assert chunk boundaries precisely.
         wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH))
                 .withRequestBody(matching(".*" + ordered.get(0) + ".*" + ordered.get(99) + ".*"))
                 .willReturn(json200(firstChunkBody)));
@@ -116,19 +100,14 @@ class IdentityStatsAdapterWireMockTest {
 
         Map<UUID, PublicStats> result = newAdapter().batchStats(ids);
 
-        // Exactly two POST calls (one per chunk).
         wireMock.verify(2, postRequestedFor(urlPathEqualTo(BATCH_PATH)));
-
-        // Every POST body carried at most 100 ids.
         wireMock.getAllServeEvents().forEach(event -> {
             String body = event.getRequest().getBodyAsString();
             if (body != null && body.contains("userIds")) {
-                long idCount = body.chars().filter(c -> c == '-').count() / 4; // 4 dashes per UUID
+                long idCount = body.chars().filter(c -> c == '-').count() / 4;
                 assertThat(idCount).isLessThanOrEqualTo(100);
             }
         });
-
-        // Merge covered every id.
         assertThat(result).hasSize(150);
         assertThat(result.keySet()).containsExactlyInAnyOrderElementsOf(ids);
     }
@@ -150,8 +129,10 @@ class IdentityStatsAdapterWireMockTest {
 
     @Test
     void batchStats_maps_response_rows_to_public_stats() {
+        // Identity returns PublicProfileDto: id/username/displayName/level/totalPoints.
         UUID id = UUID.randomUUID();
-        String body = "[{\"userId\":\"" + id + "\",\"displayName\":\"Alice\",\"points\":42,\"level\":3}]";
+        String body = "[{\"id\":\"" + id + "\",\"username\":\"alice\",\"displayName\":\"Alice\","
+                + "\"level\":3,\"totalPoints\":42}]";
         wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH)).willReturn(json200(body)));
 
         Map<UUID, PublicStats> result = newAdapter().batchStats(Set.of(id));
@@ -164,24 +145,15 @@ class IdentityStatsAdapterWireMockTest {
     }
 
     // ----------------------------------------------------------------------
-    // 2. internal headers on every request
+    // 2. internal headers on every request (via the batch call)
     // ----------------------------------------------------------------------
 
     @Test
     void every_request_carries_api_key_and_non_empty_correlation_id() {
-        UUID id = UUID.randomUUID();
-        wireMock.stubFor(get(urlPathMatching(EXISTS_PATH))
-                .willReturn(json200("{\"exists\":true}")));
-        wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH))
-                .willReturn(json200("[]")));
+        wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH)).willReturn(json200("[]")));
 
-        IdentityStatsAdapter adapter = newAdapter();
-        adapter.exists(id);
-        adapter.batchStats(Set.of(UUID.randomUUID()));
+        newAdapter().batchStats(Set.of(UUID.randomUUID()));
 
-        wireMock.verify(getRequestedFor(urlPathMatching(EXISTS_PATH))
-                .withHeader("X-Internal-Api-Key", equalTo(API_KEY))
-                .withHeader(CORRELATION_HEADER, matching(".+")));
         wireMock.verify(postRequestedFor(urlPathEqualTo(BATCH_PATH))
                 .withHeader("X-Internal-Api-Key", equalTo(API_KEY))
                 .withHeader(CORRELATION_HEADER, matching(".+")));
@@ -189,123 +161,101 @@ class IdentityStatsAdapterWireMockTest {
 
     @Test
     void correlation_id_from_mdc_is_propagated_when_present() {
-        UUID id = UUID.randomUUID();
-        wireMock.stubFor(get(urlPathMatching(EXISTS_PATH))
-                .willReturn(json200("{\"exists\":true}")));
+        wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH)).willReturn(json200("[]")));
 
         String correlationId = UUID.randomUUID().toString();
         org.slf4j.MDC.put("correlationId", correlationId);
         try {
-            newAdapter().exists(id);
+            newAdapter().batchStats(Set.of(UUID.randomUUID()));
         } finally {
             org.slf4j.MDC.remove("correlationId");
         }
 
-        wireMock.verify(getRequestedFor(urlPathMatching(EXISTS_PATH))
+        wireMock.verify(postRequestedFor(urlPathEqualTo(BATCH_PATH))
                 .withHeader(CORRELATION_HEADER, equalTo(correlationId)));
     }
 
     // ----------------------------------------------------------------------
-    // 3. timeout + retry behaviour
+    // 3. timeout + retry behaviour (idempotent read -> at most one retry)
     // ----------------------------------------------------------------------
 
     @Test
     void read_timeout_triggers_exactly_one_retry_then_integration_exception() {
-        UUID id = UUID.randomUUID();
-        // Delay well past the (lowered) read timeout so every attempt times out.
-        wireMock.stubFor(get(urlPathMatching(EXISTS_PATH))
+        wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withFixedDelay(2000)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("{\"exists\":true}")));
+                        .withBody("[]")));
 
-        // Short read timeout keeps the test fast; the retry-once path is identical
-        // to the production 5s timeout, just quicker to exercise.
         IdentityStatsAdapter adapter = newAdapter(Duration.ofSeconds(2), Duration.ofMillis(400), 100);
 
-        assertThatThrownBy(() -> adapter.exists(id))
+        assertThatThrownBy(() -> adapter.batchStats(Set.of(UUID.randomUUID())))
                 .isInstanceOf(IntegrationException.class);
 
-        // Exactly two attempts: initial + one retry.
-        wireMock.verify(2, getRequestedFor(urlPathMatching(EXISTS_PATH)));
+        wireMock.verify(2, postRequestedFor(urlPathEqualTo(BATCH_PATH)));
     }
 
     @Test
     void five_hundred_then_two_hundred_succeeds_on_the_retry_with_exactly_two_attempts() {
-        UUID id = UUID.randomUUID();
-        // First response 503, second response 200 -> succeeds on retry.
-        wireMock.stubFor(get(urlPathMatching(EXISTS_PATH))
+        wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH))
                 .inScenario("retry-on-5xx")
                 .whenScenarioStateIs(com.github.tomakehurst.wiremock.stubbing.Scenario.STARTED)
                 .willReturn(aResponse().withStatus(503))
                 .willSetStateTo("recovered"));
-        wireMock.stubFor(get(urlPathMatching(EXISTS_PATH))
+        wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH))
                 .inScenario("retry-on-5xx")
                 .whenScenarioStateIs("recovered")
-                .willReturn(json200("{\"exists\":true}")));
+                .willReturn(json200("[]")));
 
-        boolean exists = newAdapter().exists(id);
+        Map<UUID, PublicStats> result = newAdapter().batchStats(Set.of(UUID.randomUUID()));
 
-        assertThat(exists).isTrue();
-        wireMock.verify(2, getRequestedFor(urlPathMatching(EXISTS_PATH)));
+        assertThat(result).isEmpty();
+        wireMock.verify(2, postRequestedFor(urlPathEqualTo(BATCH_PATH)));
     }
 
     @Test
     void persistent_5xx_exhausts_retry_budget_and_raises_integration_exception() {
-        UUID id = UUID.randomUUID();
-        wireMock.stubFor(get(urlPathMatching(EXISTS_PATH))
+        wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH))
                 .willReturn(aResponse().withStatus(500)));
 
-        assertThatThrownBy(() -> newAdapter().exists(id))
+        assertThatThrownBy(() -> newAdapter().batchStats(Set.of(UUID.randomUUID())))
                 .isInstanceOf(IntegrationException.class);
 
-        // Initial + single retry, then give up.
-        wireMock.verify(2, getRequestedFor(urlPathMatching(EXISTS_PATH)));
+        wireMock.verify(2, postRequestedFor(urlPathEqualTo(BATCH_PATH)));
     }
 
     @Test
     void integration_exception_message_never_leaks_the_api_key() {
-        UUID id = UUID.randomUUID();
-        wireMock.stubFor(get(urlPathMatching(EXISTS_PATH))
+        wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH))
                 .willReturn(aResponse().withStatus(500)));
 
-        assertThatThrownBy(() -> newAdapter().exists(id))
+        assertThatThrownBy(() -> newAdapter().batchStats(Set.of(UUID.randomUUID())))
                 .isInstanceOf(IntegrationException.class)
                 .hasMessageNotContaining(API_KEY);
     }
 
     // ----------------------------------------------------------------------
-    // 4. exists mapping: 200/{"exists":true} -> true, 404 -> false
+    // 4. exists derived from the batch call: row present -> true, absent -> false
     // ----------------------------------------------------------------------
 
     @Test
-    void exists_maps_200_true_to_true() {
+    void exists_true_when_batch_returns_a_row_for_the_id() {
         UUID id = UUID.randomUUID();
-        wireMock.stubFor(get(urlPathMatching(EXISTS_PATH))
-                .willReturn(json200("{\"exists\":true}")));
+        String body = "[{\"id\":\"" + id + "\",\"username\":\"u\",\"displayName\":\"U\","
+                + "\"level\":1,\"totalPoints\":0}]";
+        wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH)).willReturn(json200(body)));
 
         assertThat(newAdapter().exists(id)).isTrue();
+        wireMock.verify(1, postRequestedFor(urlPathEqualTo(BATCH_PATH)));
     }
 
     @Test
-    void exists_maps_200_false_to_false() {
+    void exists_false_when_batch_returns_no_row_for_the_id() {
         UUID id = UUID.randomUUID();
-        wireMock.stubFor(get(urlPathMatching(EXISTS_PATH))
-                .willReturn(json200("{\"exists\":false}")));
+        wireMock.stubFor(post(urlPathEqualTo(BATCH_PATH)).willReturn(json200("[]")));
 
         assertThat(newAdapter().exists(id)).isFalse();
-    }
-
-    @Test
-    void exists_maps_404_to_false() {
-        UUID id = UUID.randomUUID();
-        wireMock.stubFor(get(urlPathMatching(EXISTS_PATH))
-                .willReturn(aResponse().withStatus(404)));
-
-        assertThat(newAdapter().exists(id)).isFalse();
-        // 404 is a definitive answer, not a transient failure: no retry.
-        wireMock.verify(1, getRequestedFor(urlPathMatching(EXISTS_PATH)));
     }
 
     // ----------------------------------------------------------------------
@@ -319,17 +269,18 @@ class IdentityStatsAdapterWireMockTest {
                 .withBody(body);
     }
 
-    /** Builds a JSON stats array with one row per id. */
+    /** Builds a JSON stats array (PublicProfileDto shape) with one row per id. */
     private static String statsArray(java.util.List<UUID> ids) {
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < ids.size(); i++) {
             if (i > 0) {
                 sb.append(',');
             }
-            sb.append("{\"userId\":\"").append(ids.get(i))
+            sb.append("{\"id\":\"").append(ids.get(i))
+                    .append("\",\"username\":\"u").append(i)
                     .append("\",\"displayName\":\"u").append(i)
-                    .append("\",\"points\":").append(i)
-                    .append(",\"level\":1}");
+                    .append("\",\"level\":1,\"totalPoints\":").append(i)
+                    .append('}');
         }
         return sb.append(']').toString();
     }

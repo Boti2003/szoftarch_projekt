@@ -15,7 +15,7 @@ spring:
             - id: identity
               uri: ${IDENTITY_URL:http://localhost:8081}
               predicates:
-                - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/leaderboard/**,/api/v1/leaderboards/**
+                - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/leaderboard/**,/api/v1/leaderboards/global
             - id: learning
               uri: ${LEARNING_URL:http://localhost:8082}
               predicates:
