@@ -1,6 +1,6 @@
 -- =========================================================================
--- Social Service baseline séma (TERV 6.3).
--- Minden időbélyeg UTC (D17). Más domain entitására csak UUID hivatkozás.
+-- Social Service baseline séma.
+-- Minden időbélyeg UTC. Más domain entitására csak UUID hivatkozás.
 -- =========================================================================
 
 CREATE TABLE friend_requests (
