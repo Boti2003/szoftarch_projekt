@@ -76,18 +76,37 @@ public class EnrollmentService {
                         "language_not_found", "Language not found or not available"));
 
         List<UserLanguageEnrollment> enrollments = new ArrayList<>(enrollmentRepository.findByIdUserId(userId));
-        boolean targetExists = false;
+
+        // Előbb MINDEN meglévő beiratkozást deaktiválunk és azonnal flush-olunk,
+        // hogy ne maradjon aktív sor. A parciális unique index (egy aktív nyelv /
+        // felhasználó) soron belül értékelődik, ezért a régi aktívat le kell írni,
+        // mielőtt az újat aktiváljuk — különben egy pillanatra két aktív sor lenne.
+        boolean neededDeactivate = false;
         for (UserLanguageEnrollment enrollment : enrollments) {
-            boolean isTarget = enrollment.getLanguageId().equals(language.getId());
-            enrollment.setActive(isTarget);
-            targetExists = targetExists || isTarget;
+            if (enrollment.isActive()) {
+                enrollment.setActive(false);
+                neededDeactivate = true;
+            }
         }
-        if (!targetExists) {
-            enrollments.add(new UserLanguageEnrollment(userId, language.getId(), true, Instant.now()));
+        if (neededDeactivate) {
+            enrollmentRepository.saveAllAndFlush(enrollments);
         }
+
+        // Majd a célnyelvet aktiváljuk (meglévő sor vagy új beiratkozás).
+        UserLanguageEnrollment target = enrollments.stream()
+                .filter(e -> e.getLanguageId().equals(language.getId()))
+                .findFirst()
+                .orElseGet(() -> {
+                    var created = new UserLanguageEnrollment(userId, language.getId(), false, Instant.now());
+                    enrollments.add(created);
+                    return created;
+                });
+        target.setActive(true);
+
         try {
             enrollmentRepository.saveAllAndFlush(enrollments);
         } catch (DataIntegrityViolationException ex) {
+            // Valódi konkurens aktiválás (párhuzamos kérés ugyanattól a usertől).
             throw new ConflictException("active_enrollment_conflict",
                     "Another active language was set concurrently; refresh and retry");
         }

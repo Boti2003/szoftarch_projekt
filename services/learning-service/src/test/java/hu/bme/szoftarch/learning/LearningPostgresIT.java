@@ -353,22 +353,22 @@ class LearningPostgresIT {
                 .isInstanceOf(ObjectOptimisticLockingFailureException.class);
     }
 
-    // (e) Parciális unique index (FEAT-002): második aktív beiratkozás 409.
+    // (e) Nyelvváltás (FEAT-002): a második nyelv aktiválása sikeres, és
+    // fenntartja az "egy aktív nyelv / felhasználó" invariánst (a korábbi
+    // aktívat deaktiválja). A parciális unique index nem sérül, mert az
+    // EnrollmentService előbb deaktiválja a régit, majd aktiválja az újat.
     @Test
-    void secondActiveEnrollmentViolatesPartialUniqueIndexAsConflict() {
+    void switchingActiveLanguageDeactivatesThePrevious() {
         UUID userId = UUID.randomUUID();
         UUID en = data.language("en", "English", true);
         UUID de = data.language("de", "German", true);
 
         enrollmentService.activateLanguage(userId, en);
+        enrollmentService.activateLanguage(userId, de);
 
-        // A felhasználónak már van aktív EN beiratkozása. A DE aktiválásakor a
-        // Hibernate a flush során az ÚJ, aktív DE sort még az EN inaktiválása előtt
-        // szúrja be (insert-before-update), így pillanatnyilag két aktív sor lenne a
-        // felhasználóhoz -> a parciális unique index elutasítja. Az EnrollmentService
-        // ezt a DataIntegrityViolationException-t ConflictException (409) válasszá fordítja.
-        assertThatThrownBy(() -> enrollmentService.activateLanguage(userId, de))
-                .isInstanceOf(ConflictException.class);
+        // Pontosan egy aktív nyelv van, és az a DE.
+        var response = enrollmentService.getEnrollments(userId);
+        assertThat(response.activeLanguageId()).isEqualTo(de);
     }
 
     // ========================= U6 napi kihívás ============================
