@@ -141,7 +141,7 @@ export function useFriendsLeaderboard() {
 
 // --- Duels ---
 export function useDuels(status?: DuelStatus) {
-  return useQuery<DuelSummaryView[]>({
+  return useQuery<PageResponse<DuelSummaryView>>({
     queryKey: [...duelsQueryKey, status ?? 'ALL'],
     queryFn: () => listDuels(status),
   });
@@ -249,7 +249,7 @@ export function userProfileQueryKey(id: Uuid) {
 
 export function useUserProfiles(ids: Uuid[]): Map<Uuid, PublicProfile> {
   // Dedupe so the same id is not fetched twice within one screen.
-  const uniqueIds = Array.from(new Set(ids.filter((id) => id.length > 0)));
+  const uniqueIds = Array.from(new Set(ids.filter((id): id is Uuid => Boolean(id))));
 
   const results = useQueries({
     queries: uniqueIds.map((id) => ({

@@ -56,10 +56,11 @@ export function DuelsPage() {
   const [snackbar, setSnackbar] = useState<string | null>(null);
 
   const duels = useDuels(statusFilter === 'ALL' ? undefined : statusFilter);
+  const duelItems = duels.data?.items ?? [];
 
-  const counterpartId = (duel: DuelSummaryView) =>
+  const counterpartId = (duel: DuelSummaryView): string =>
     user && duel.challengerId === user.id ? duel.opponentId : duel.challengerId;
-  const profiles = useUserProfiles((duels.data ?? []).map(counterpartId));
+  const profiles = useUserProfiles(duelItems.map(counterpartId));
 
   const roleLabel = (duel: DuelSummaryView) =>
     user && duel.challengerId === user.id ? 'Te hívtad ki' : 'Téged hívott ki';
@@ -106,14 +107,14 @@ export function DuelsPage() {
         </Alert>
       )}
 
-      {!duels.isLoading && !duels.isError && (duels.data?.length ?? 0) === 0 && (
+      {!duels.isLoading && !duels.isError && duelItems.length === 0 && (
         <Alert severity="info">Nincs megjeleníthető párbaj.</Alert>
       )}
 
-      {!duels.isLoading && !duels.isError && (duels.data?.length ?? 0) > 0 && (
+      {!duels.isLoading && !duels.isError && duelItems.length > 0 && (
         <Paper variant="outlined">
           <List>
-            {duels.data!.map((duel) => (
+            {duelItems.map((duel) => (
               <ListItem key={duel.id} divider disablePadding>
                 <ListItemButton onClick={() => navigate(`/duels/${duel.id}`)}>
                   <ListItemText

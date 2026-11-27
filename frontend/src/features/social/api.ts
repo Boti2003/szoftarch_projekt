@@ -82,9 +82,9 @@ export function createDuel(
   return apiSend<DuelView>('POST', '/duels', { body, idempotencyKey });
 }
 
-export function listDuels(status?: DuelStatus): Promise<DuelSummaryView[]> {
+export function listDuels(status?: DuelStatus): Promise<PageResponse<DuelSummaryView>> {
   const query = status ? `?status=${status}` : '';
-  return apiGet<DuelSummaryView[]>(`/duels${query}`);
+  return apiGet<PageResponse<DuelSummaryView>>(`/duels${query}`);
 }
 
 export function getDuel(id: Uuid): Promise<DuelDetailView> {

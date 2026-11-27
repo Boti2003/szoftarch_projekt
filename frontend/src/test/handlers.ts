@@ -706,7 +706,7 @@ export const socialHandlers = [
     const url = new URL(request.url);
     const status = url.searchParams.get('status');
     const items = status ? duelsListFixture.filter((d) => d.status === status) : duelsListFixture;
-    return HttpResponse.json(items);
+    return HttpResponse.json({ items, page: 0, size: 20, totalElements: items.length, totalPages: 1 });
   }),
   http.post('/api/v1/duels', () =>
     HttpResponse.json(
