@@ -1,10 +1,12 @@
 openapi: 3.1.0
 info:
   title: AI Service Internal API
-  version: 0.0.1
+  version: 0.1.0
   description: >
-    Belső szolgáltatás, közvetlen frontend route nélkül (TERV 4.4, 7.7).
-    Fordítás- és szituációértékelés. Csak a belső hálózaton, X-Internal-Api-Key.
+    Belső szolgáltatás, közvetlen frontend route nélkül. Fordítás- és
+    szituációértékelés. Csak a belső hálózaton érhető el, X-Internal-Api-Key
+    fejléccel. A hívó (Learning) állítja össze a megbízható kontextust; az AI
+    service nem tulajdonol pontot vagy progresst.
 servers:
   - url: /internal/v1
 
@@ -16,34 +18,86 @@ paths:
   /translations:evaluate:
     post:
       tags: [translations]
-      summary: Fordítás strukturált értékelése (score, accepted, feedback)
+      summary: Fordítás strukturált értékelése
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TranslationEvaluationRequest' }
       responses:
-        '200': { description: OK }
+        '200':
+          description: Értékelés kész
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TranslationEvaluationResponse' }
         '400': { $ref: '#/components/responses/Problem' }
         '502': { $ref: '#/components/responses/Problem' }
-        '503': { $ref: '#/components/responses/Problem' }
+
   /scenario-sessions:
     post:
       tags: [scenarios]
       summary: Session indítása megbízható scenario configgal
+      description: >
+        A config az exercise payloadból jön (öt kötelező mező). Egy
+        learningAttemptId-hoz egy session tartozhat; ismétlésre 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartScenarioRequest' }
       responses:
-        '201': { description: Létrehozva }
+        '201':
+          description: Létrehozva
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StartScenarioResponse' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
         '502': { $ref: '#/components/responses/Problem' }
+
   /scenario-sessions/{id}/messages:
     post:
       tags: [scenarios]
-      summary: Forduló folytatása
-      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      summary: Egy felhasználói forduló; AI-válasz
+      description: >
+        A message sosem értékel. A felső forduló-korlát (8) elérése után a
+        következő message 409-et ad; a lezárást a complete végzi.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScenarioMessageRequest' }
       responses:
-        '200': { description: OK }
+        '200':
+          description: AI-válasz
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScenarioMessageResponse' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
         '502': { $ref: '#/components/responses/Problem' }
+
   /scenario-sessions/{id}/complete:
     post:
       tags: [scenarios]
-      summary: Session lezárása és összegző értékelés
-      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      summary: Session lezárása és záró értékelés
+      description: >
+        Legalább 3 forduló után zárható le. A válasz a három részpontszámot és
+        a feedbacket adja; a küszöböt és a pontszámítást a hívó végzi.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        '200': { description: OK }
+        '200':
+          description: Záró értékelés
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScenarioEvaluationResponse' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '502': { $ref: '#/components/responses/Problem' }
 
 components:
   securitySchemes:
@@ -58,6 +112,70 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetails' }
   schemas:
+    TranslationEvaluationRequest:
+      type: object
+      required: [learnerTranslation]
+      properties:
+        sourceText: { type: string }
+        targetLanguage: { type: string, description: "célnyelv kódja, pl. en" }
+        learnerTranslation: { type: string, description: "a tanuló beküldött fordítása" }
+        referenceTranslations:
+          type: array
+          items: { type: string }
+        evaluationCriteria:
+          type: array
+          items: { type: string }
+    TranslationEvaluationResponse:
+      type: object
+      required: [score, accepted, feedback]
+      properties:
+        score: { type: number, format: double, minimum: 0, maximum: 1 }
+        accepted: { type: boolean, description: "score >= 0.70" }
+        feedback: { type: string }
+
+    StartScenarioRequest:
+      type: object
+      required: [learningAttemptId, userId, exerciseId, role, situation, goals, targetLanguageCode, openingMessage]
+      properties:
+        learningAttemptId: { type: string, format: uuid, description: "a hívó által birtokolt, egyedi" }
+        userId: { type: string, format: uuid }
+        exerciseId: { type: string, format: uuid }
+        role: { type: string }
+        situation: { type: string }
+        goals:
+          type: array
+          minItems: 1
+          items: { type: string }
+        targetLanguageCode: { type: string }
+        openingMessage: { type: string, description: "az AI nyitó üzenete" }
+    StartScenarioResponse:
+      type: object
+      required: [id, openingMessage]
+      properties:
+        id: { type: string, format: uuid, description: "a létrejött session azonosítója" }
+        openingMessage: { type: string }
+
+    ScenarioMessageRequest:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string, description: "a felhasználói forduló szövege" }
+    ScenarioMessageResponse:
+      type: object
+      required: [aiMessage, turnCount]
+      properties:
+        aiMessage: { type: string }
+        turnCount: { type: integer, description: "az eddigi felhasználói fordulók száma" }
+
+    ScenarioEvaluationResponse:
+      type: object
+      required: [comprehensibility, grammar, taskCompletion, feedback]
+      properties:
+        comprehensibility: { type: number, format: double, minimum: 0, maximum: 1 }
+        grammar: { type: number, format: double, minimum: 0, maximum: 1 }
+        taskCompletion: { type: number, format: double, minimum: 0, maximum: 1 }
+        feedback: { type: string }
+
     ProblemDetails:
       type: object
       properties:
@@ -66,7 +184,7 @@ components:
         status: { type: integer }
         detail: { type: string }
         instance: { type: string }
-        code: { type: string }
+        code: { type: string, description: "pl. invalid-state, not-found, language-model-error" }
         traceId: { type: string }
 
 security:

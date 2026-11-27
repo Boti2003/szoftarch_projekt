@@ -59,7 +59,7 @@ class ScenarioSessionServiceTest {
     }
 
     @Test
-    void autoCompletesAtMaxTurns() {
+    void messageNeverAutoCompletesAndRejectsBeyondMax() {
         var started = service.start(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), config());
         UUID id = started.getId();
 
@@ -68,9 +68,28 @@ class ScenarioSessionServiceTest {
             last = service.addUserMessage(id, "message number " + i + " with some words");
         }
 
+        // A message sosem értékel: a session OPEN marad a 8. forduló után is.
         assertThat(last).isNotNull();
-        assertThat(last.getStatus()).isEqualTo(SessionStatus.COMPLETED);
-        assertThat(last.getFinalEvaluation()).isNotNull();
+        assertThat(last.getStatus()).isEqualTo(SessionStatus.OPEN);
+        assertThat(last.getFinalEvaluation()).isNull();
+
+        // A 9. message elutasul (felső korlát).
+        assertThatThrownBy(() -> service.addUserMessage(id, "one turn too many"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void completeAfterMaxTurnsProducesEvaluation() {
+        var started = service.start(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), config());
+        UUID id = started.getId();
+        for (int i = 0; i < ScenarioSession.MAX_USER_TURNS; i++) {
+            service.addUserMessage(id, "message number " + i + " with some words");
+        }
+
+        var completed = service.complete(id);
+
+        assertThat(completed.getStatus()).isEqualTo(SessionStatus.COMPLETED);
+        assertThat(completed.getFinalEvaluation()).isNotNull();
     }
 
     @Test

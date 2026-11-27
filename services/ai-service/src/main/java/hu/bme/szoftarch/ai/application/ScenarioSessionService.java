@@ -59,11 +59,8 @@ public class ScenarioSessionService {
         String reply = languageModel.continueScenario(session.getConfig(), session.conversationHistory());
         session.recordAssistantMessage(reply);
 
-        if (session.mustAutoComplete()) {
-            var evaluation = languageModel.evaluateScenario(session.getConfig(), session.conversationHistory());
-            session.complete(evaluation);
-        }
-
+        // A lezárást kizárólag a complete végpont végzi; a message sosem értékel.
+        // A felső forduló-korlát elérése után a következő message elutasul.
         return repository.save(session);
     }
 
