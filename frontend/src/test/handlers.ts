@@ -537,3 +537,219 @@ export const handlers = [
     HttpResponse.json(scenarioCompleteFixture),
   ),
 ];
+
+// =========================================================================
+// Social (C) fixtures + handlers. UUIDs reference mockUser as the authenticated
+// user so "me"-relative behavior (leaderboard highlight, duel roles) is testable.
+// =========================================================================
+
+export const FRIEND_ID_1 = '88888888-8888-8888-8888-888888888881';
+export const FRIEND_ID_2 = '88888888-8888-8888-8888-888888888882';
+export const PENDING_SENDER_ID = '88888888-8888-8888-8888-888888888883';
+export const DUEL_ID = '99999999-9999-9999-9999-999999999991';
+export const DUEL_PENDING_ID = '99999999-9999-9999-9999-999999999992';
+
+export const friendsPageFixture = {
+  items: [
+    {
+      userId: FRIEND_ID_1,
+      displayName: 'Bela Kovacs',
+      points: 500,
+      level: 4,
+      friendsSince: '2026-11-20T10:00:00Z',
+    },
+    {
+      userId: FRIEND_ID_2,
+      displayName: 'Cecil Nagy',
+      points: 120,
+      level: 2,
+      friendsSince: '2026-11-21T10:00:00Z',
+    },
+  ],
+  page: 0,
+  size: 20,
+  totalElements: 2,
+  totalPages: 1,
+};
+
+export const incomingRequestsFixture = {
+  items: [
+    {
+      id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1',
+      senderId: PENDING_SENDER_ID,
+      receiverId: mockUser.id,
+      status: 'PENDING',
+      createdAt: '2026-11-25T09:00:00Z',
+      updatedAt: '2026-11-25T09:00:00Z',
+    },
+  ],
+  page: 0,
+  size: 20,
+  totalElements: 1,
+  totalPages: 1,
+};
+
+export const outgoingRequestsFixture = {
+  items: [],
+  page: 0,
+  size: 20,
+  totalElements: 0,
+  totalPages: 0,
+};
+
+export const friendsLeaderboardFixture = [
+  { userId: FRIEND_ID_1, displayName: 'Bela Kovacs', points: 500, level: 4, rank: 1 },
+  {
+    userId: mockUser.id,
+    displayName: mockUser.displayName,
+    points: mockUser.totalPoints,
+    level: mockUser.level,
+    rank: 2,
+  },
+  { userId: FRIEND_ID_2, displayName: 'Cecil Nagy', points: 120, level: 2, rank: 3 },
+];
+
+export const duelsListFixture = [
+  {
+    id: DUEL_ID,
+    challengerId: mockUser.id,
+    opponentId: FRIEND_ID_1,
+    languageId: LANGUAGE_ID_EN,
+    status: 'IN_PROGRESS',
+    myStatus: 'IN_PROGRESS',
+    winnerId: null,
+    expiresAt: '2026-12-01T10:00:00Z',
+  },
+  {
+    id: DUEL_PENDING_ID,
+    challengerId: FRIEND_ID_2,
+    opponentId: mockUser.id,
+    languageId: LANGUAGE_ID_EN,
+    status: 'PENDING',
+    myStatus: 'NOT_STARTED',
+    winnerId: null,
+    expiresAt: '2026-11-30T10:00:00Z',
+  },
+];
+
+export const duelDetailFixture = {
+  id: DUEL_ID,
+  challengerId: mockUser.id,
+  opponentId: FRIEND_ID_1,
+  languageId: LANGUAGE_ID_EN,
+  status: 'IN_PROGRESS',
+  winnerId: null,
+  expiresAt: '2026-12-01T10:00:00Z',
+  viewerId: mockUser.id,
+  self: { userId: mockUser.id, status: 'IN_PROGRESS', score: 0, answeredCount: 0 },
+  opponent: null, // gated until the viewer completes
+};
+
+export const duelExercisesFixture = [
+  { exerciseId: 'bbbbbbbb-0000-0000-0000-000000000001', prompt: 'Hello magyarul?', options: ['Szia', 'Viszlát'], maxPoints: 10 },
+  { exerciseId: 'bbbbbbbb-0000-0000-0000-000000000002', prompt: 'Good morning?', options: ['Jó reggelt', 'Jó éjt'], maxPoints: 10 },
+  { exerciseId: 'bbbbbbbb-0000-0000-0000-000000000003', prompt: 'Thank you?', options: ['Köszönöm', 'Kérem'], maxPoints: 10 },
+  { exerciseId: 'bbbbbbbb-0000-0000-0000-000000000004', prompt: 'Yes?', options: ['Igen', 'Nem'], maxPoints: 10 },
+  { exerciseId: 'bbbbbbbb-0000-0000-0000-000000000005', prompt: 'Please?', options: ['Kérem', 'Köszönöm'], maxPoints: 10 },
+];
+
+export const notificationSummaryFixture = {
+  pendingFriendRequestCount: 1,
+  pendingFriendRequests: [
+    { requestId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1', senderId: PENDING_SENDER_ID, createdAt: '2026-11-25T09:00:00Z' },
+  ],
+  actionableDuelCount: 1,
+  actionableDuels: [
+    { duelId: DUEL_PENDING_ID, status: 'PENDING', opponentId: FRIEND_ID_2, expiresAt: '2026-11-30T10:00:00Z' },
+  ],
+};
+
+export const userSearchFixture = [
+  { id: FRIEND_ID_1, username: 'bela', displayName: 'Bela Kovacs', level: 4, totalPoints: 500 },
+  { id: '88888888-8888-8888-8888-888888888899', username: 'david', displayName: 'David Toth', level: 1, totalPoints: 30 },
+];
+
+export const socialHandlers = [
+  // Friends
+  http.get('/api/v1/friends', () => HttpResponse.json(friendsPageFixture)),
+  http.delete('/api/v1/friends/:friendId', () => new HttpResponse(null, { status: 204 })),
+
+  // Friend requests
+  http.get('/api/v1/friend-requests', ({ request }) => {
+    const url = new URL(request.url);
+    const direction = url.searchParams.get('direction');
+    return HttpResponse.json(
+      direction === 'outgoing' ? outgoingRequestsFixture : incomingRequestsFixture,
+    );
+  }),
+  http.post('/api/v1/friend-requests', () =>
+    HttpResponse.json(
+      {
+        id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa9',
+        senderId: mockUser.id,
+        receiverId: FRIEND_ID_1,
+        status: 'PENDING',
+        createdAt: '2026-11-26T09:00:00Z',
+        updatedAt: '2026-11-26T09:00:00Z',
+      },
+      { status: 201 },
+    ),
+  ),
+  http.post('/api/v1/friend-requests/:id/accept', () => new HttpResponse(null, { status: 204 })),
+  http.post('/api/v1/friend-requests/:id/reject', () => new HttpResponse(null, { status: 204 })),
+
+  // Friends leaderboard
+  http.get('/api/v1/leaderboards/friends', () => HttpResponse.json(friendsLeaderboardFixture)),
+
+  // Duels
+  http.get('/api/v1/duels', ({ request }) => {
+    const url = new URL(request.url);
+    const status = url.searchParams.get('status');
+    const items = status ? duelsListFixture.filter((d) => d.status === status) : duelsListFixture;
+    return HttpResponse.json(items);
+  }),
+  http.post('/api/v1/duels', () =>
+    HttpResponse.json(
+      {
+        id: DUEL_ID,
+        challengerId: mockUser.id,
+        opponentId: FRIEND_ID_1,
+        languageId: LANGUAGE_ID_EN,
+        learningSetId: 'cccccccc-0000-0000-0000-000000000001',
+        status: 'PENDING',
+        expiresAt: '2026-11-30T10:00:00Z',
+      },
+      { status: 201 },
+    ),
+  ),
+  http.get('/api/v1/duels/:id', () => HttpResponse.json(duelDetailFixture)),
+  http.post('/api/v1/duels/:id/accept', () => new HttpResponse(null, { status: 204 })),
+  http.post('/api/v1/duels/:id/reject', () => new HttpResponse(null, { status: 204 })),
+  http.get('/api/v1/duels/:id/exercises', () => HttpResponse.json(duelExercisesFixture)),
+  http.post('/api/v1/duels/:id/answers', () =>
+    HttpResponse.json({
+      duelId: DUEL_ID,
+      correct: true,
+      awardedPoints: 10,
+      newScore: 10,
+      answeredCount: 1,
+      participantStatus: 'IN_PROGRESS',
+      duelStatus: 'IN_PROGRESS',
+      winnerId: null,
+    }),
+  ),
+
+  // Notifications
+  http.get('/api/v1/notifications/summary', () => HttpResponse.json(notificationSummaryFixture)),
+
+  // Identity username search (add-friend)
+  http.get('/api/v1/users/search', ({ request }) => {
+    const url = new URL(request.url);
+    const q = (url.searchParams.get('username') ?? '').toLowerCase();
+    return HttpResponse.json(
+      userSearchFixture.filter((u) => u.username.toLowerCase().startsWith(q)),
+    );
+  }),
+];
+
+handlers.push(...socialHandlers);

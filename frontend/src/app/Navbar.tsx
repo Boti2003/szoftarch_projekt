@@ -1,6 +1,7 @@
 import { AppBar, Box, Button, Chip, Toolbar, Typography } from '@mui/material';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../features/auth/AuthContext';
+import { NotificationBell } from '../features/social/NotificationBell';
 
 export function Navbar() {
   const { user, logout } = useAuth();
@@ -37,6 +38,12 @@ export function Navbar() {
               <Button component={RouterLink} to="/daily" color="inherit">
                 Napi kihívás
               </Button>
+              <Button component={RouterLink} to="/friends" color="inherit">
+                Barátok
+              </Button>
+              <Button component={RouterLink} to="/duels" color="inherit">
+                Párbajok
+              </Button>
               <Button component={RouterLink} to="/profile" color="inherit">
                 Profil
               </Button>
@@ -47,6 +54,7 @@ export function Navbar() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {user ? (
             <>
+              <NotificationBell enabled={Boolean(user)} />
               <Chip
                 label={`Szint ${user.level} (${user.totalPoints} XP)`}
                 color="primary"

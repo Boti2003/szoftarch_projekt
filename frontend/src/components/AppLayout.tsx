@@ -27,6 +27,9 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Nyelvek', to: '/languages' },
   { label: 'Leckék', to: '/lessons' },
   { label: 'Napi kihívás', to: '/daily' },
+  { label: 'Barátok', to: '/friends' },
+  { label: 'Párbajok', to: '/duels' },
+  { label: 'Baráti ranglista', to: '/leaderboards/friends' },
 ];
 
 // Reszponzív, billentyűzettel elérhető fő elrendezés a learning feature-ökhöz.

@@ -17,17 +17,21 @@ import { LessonDetailPage } from '../features/learning/LessonDetailPage';
 import { ExercisePlayerPage } from '../features/learning/ExercisePlayerPage';
 import { ScenarioChatPage } from '../features/learning/ScenarioChatPage';
 import { DailyChallengePage } from '../features/daily/DailyChallengePage';
+import { FriendsPage } from '../features/social/FriendsPage';
+import { FriendsLeaderboardPage } from '../features/social/FriendsLeaderboardPage';
+import { DuelsPage } from '../features/social/DuelsPage';
+import { DuelDetailPage } from '../features/social/DuelDetailPage';
 
 const queryClient = new QueryClient();
 
-// INTEGRÁCIÓS MERGE-DÖNTÉS (integration branch, learning + identity):
-// Az Identity (A) auth-keretét (AuthProvider + Navbar + ProtectedRoute + login/
-// register/profile/leaderboard) és a Learning (B) feature-oldalait (learning +
-// daily) egyesítjük. A learning/daily oldalak JWT-t igényelnek (a backend minden
-// /api/v1/** végpontja védett), ezért a ProtectedRoute ALÁ kerülnek. A health,
-// login, register publikus. Az AppLayout a learning oldalak közös kerete; a Navbar
-// az Identity globális navigációja — egyelőre mindkettő megmarad (lásd
-// INTEGRACIO 9. szakasz: a közös layout/Navbar összevonása D-vel tisztázandó).
+// INTEGRÃCIÃS MERGE-DÃNTÃS (integration branch, learning + identity):
+// Az Identity (A) auth-keretÃ©t (AuthProvider + Navbar + ProtectedRoute + login/
+// register/profile/leaderboard) Ã©s a Learning (B) feature-oldalait (learning +
+// daily) egyesÃ­tjÃ¼k. A learning/daily oldalak JWT-t igÃ©nyelnek (a backend minden
+// /api/v1/** vÃ©gpontja vÃ©dett), ezÃ©rt a ProtectedRoute ALÃ kerÃ¼lnek. A health,
+// login, register publikus. Az AppLayout a learning oldalak kÃ¶zÃ¶s kerete; a Navbar
+// az Identity globÃ¡lis navigÃ¡ciÃ³ja â egyelÅre mindkettÅ megmarad (lÃ¡sd
+// INTEGRACIO 9. szakasz: a kÃ¶zÃ¶s layout/Navbar Ã¶sszevonÃ¡sa D-vel tisztÃ¡zandÃ³).
 export function App() {
   return (
     <ThemeProvider theme={theme}>
@@ -42,13 +46,13 @@ export function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
 
-              {/* Védett útvonalak – JWT szükséges (Identity auth) */}
+              {/* VÃ©dett Ãºtvonalak â JWT szÃ¼ksÃ©ges (Identity auth) */}
               <Route element={<ProtectedRoute />}>
                 {/* Identity (A) */}
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/leaderboard" element={<LeaderboardPage />} />
 
-                {/* Learning (B) – a közös AppLayout keretben */}
+                {/* Learning (B) â a kÃ¶zÃ¶s AppLayout keretben */}
                 <Route
                   path="/languages"
                   element={
@@ -102,6 +106,40 @@ export function App() {
                   element={
                     <AppLayout>
                       <DailyChallengePage />
+                    </AppLayout>
+                  }
+                />
+
+                {/* Social (C) – friends, friend leaderboard, duels */}
+                <Route
+                  path="/friends"
+                  element={
+                    <AppLayout>
+                      <FriendsPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/leaderboards/friends"
+                  element={
+                    <AppLayout>
+                      <FriendsLeaderboardPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/duels"
+                  element={
+                    <AppLayout>
+                      <DuelsPage />
+                    </AppLayout>
+                  }
+                />
+                <Route
+                  path="/duels/:id"
+                  element={
+                    <AppLayout>
+                      <DuelDetailPage />
                     </AppLayout>
                   }
                 />
