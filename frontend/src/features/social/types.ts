@@ -109,6 +109,9 @@ export interface DuelExerciseView {
   type: string;
   prompt: string;
   options: DuelOption[];
+  // Raw type-specific presentation content from Learning (statement, tokens,
+  // leftItems/rightItems, items, options, ...). Shape depends on `type`.
+  content: Record<string, unknown>;
   maxPoints: number;
 }
 

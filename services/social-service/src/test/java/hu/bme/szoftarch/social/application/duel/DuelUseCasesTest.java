@@ -347,8 +347,10 @@ class DuelUseCasesTest {
             UUID e2 = UUID.fromString("00000000-0000-0000-0000-0000000000e2");
             List<ExerciseRef> refs = List.of(
                     new ExerciseRef(0, e1, "MULTIPLE_CHOICE", "prompt-1",
-                            List.of(new ExerciseRef.Option("a", "A"), new ExerciseRef.Option("b", "B")), 10),
-                    new ExerciseRef(1, e2, "TRUE_FALSE", "prompt-2", List.of(), 5));
+                            List.of(new ExerciseRef.Option("a", "A"), new ExerciseRef.Option("b", "B")),
+                            Map.of("options", List.of(Map.of("id", "a", "text", "A"))), 10),
+                    new ExerciseRef(1, e2, "TRUE_FALSE", "prompt-2", List.of(),
+                            Map.of("statement", "s"), 5));
             when(learningDuelPort.fetchExercises(LEARNING_SET_ID)).thenReturn(refs);
 
             List<ExerciseView> views = duelService.exercises(CHALLENGER, DUEL_ID);

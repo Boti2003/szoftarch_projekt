@@ -373,6 +373,7 @@ public class DuelService {
                 .map(o -> new ExerciseView.Option(o.id(), o.text()))
                 .toList();
         return new ExerciseView(
-                ref.position(), ref.exerciseId(), ref.type(), ref.prompt(), options, ref.maxPoints());
+                ref.position(), ref.exerciseId(), ref.type(), ref.prompt(),
+                options, ref.content(), ref.maxPoints());
     }
 }

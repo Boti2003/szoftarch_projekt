@@ -145,32 +145,43 @@ public class LearningDuelAdapter implements LearningDuelPort {
         List<ExerciseRef> refs = new ArrayList<>(exercises.size());
         for (int position = 0; position < exercises.size(); position++) {
             ExercisePresentationResponse e = exercises.get(position);
+            Map<String, Object> content = e.content() == null ? Map.of() : e.content();
             refs.add(new ExerciseRef(
                     position,
                     e.exerciseId(),
                     e.type(),
                     e.prompt(),
-                    optionsOf(e),
+                    optionsOf(content),
+                    content,
                     e.maxPoints()));
         }
         return List.copyOf(refs);
     }
 
     /**
-     * Extracts selectable options from the typed content for the option-based
-     * duel types (multiple choice, odd-one-out). Other types yield no options.
+     * Extracts selectable options from the raw content for the option-based duel
+     * types: multiple choice exposes {@code options}, odd-one-out exposes
+     * {@code items}; both are lists of {@code {id, text}}. Other types yield no
+     * options (the UI renders them from the full {@code content}).
      */
-    private static List<ExerciseRef.Option> optionsOf(ExercisePresentationResponse e) {
-        if (e.content() == null) {
+    @SuppressWarnings("unchecked")
+    private static List<ExerciseRef.Option> optionsOf(Map<String, Object> content) {
+        Object raw = content.get("options");
+        if (raw == null) {
+            raw = content.get("items");
+        }
+        if (!(raw instanceof List<?> list)) {
             return List.of();
         }
-        List<RawOption> raw = e.content().options();
-        if (raw == null || raw.isEmpty()) {
-            return List.of();
-        }
-        List<ExerciseRef.Option> options = new ArrayList<>(raw.size());
-        for (RawOption o : raw) {
-            options.add(new ExerciseRef.Option(o.id(), o.text()));
+        List<ExerciseRef.Option> options = new ArrayList<>(list.size());
+        for (Object o : list) {
+            if (o instanceof Map<?, ?> m) {
+                Object id = m.get("id");
+                Object text = m.get("text");
+                options.add(new ExerciseRef.Option(
+                        id == null ? null : id.toString(),
+                        text == null ? null : text.toString()));
+            }
         }
         return options;
     }
@@ -229,15 +240,7 @@ public class LearningDuelAdapter implements LearningDuelPort {
             String type,
             String prompt,
             int maxPoints,
-            RawContent content) {
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record RawContent(List<RawOption> options) {
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record RawOption(String id, String text) {
+            Map<String, Object> content) {
     }
 
     /** Learning's answer request: {@code {userId, position, answer}}. */

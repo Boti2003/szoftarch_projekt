@@ -11,11 +11,7 @@ import {
   Divider,
   LinearProgress,
   Paper,
-  Radio,
-  RadioGroup,
-  FormControlLabel,
   Stack,
-  TextField,
   Typography,
 } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -29,6 +25,7 @@ import {
   useUserProfiles,
 } from './hooks';
 import { userLabel } from './format';
+import { DuelExerciseInput } from './DuelExerciseInput';
 import type { DuelDetailView, DuelStatus } from './types';
 
 const STATUS_LABELS: Record<DuelStatus, string> = {
@@ -163,7 +160,7 @@ export function DuelDetailPage() {
 function DuelPlay({ duelId, answeredCount }: { duelId: string; answeredCount: number }) {
   const exercises = useDuelExercises(duelId, true);
   const submit = useSubmitDuelAnswer(duelId);
-  const [answer, setAnswer] = useState('');
+  const [pendingAnswer, setPendingAnswer] = useState<Record<string, unknown> | null>(null);
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
 
   if (exercises.isLoading) {
@@ -190,21 +187,15 @@ function DuelPlay({ duelId, answeredCount }: { duelId: string; answeredCount: nu
   }
 
   const onSubmit = () => {
-    if (answer.trim() === '') {
+    if (pendingAnswer === null) {
       return;
     }
-    // Option-based duel exercises expect { selectedOptionIds: [id] }; the
-    // free-text fallback sends a plain { answer } payload.
-    const payload: Record<string, unknown> =
-      current.options.length > 0
-        ? { selectedOptionIds: [answer] }
-        : { answer: answer.trim() };
     submit.mutate(
-      { position: current.position, answer: payload },
+      { position: current.position, answer: pendingAnswer },
       {
         onSuccess: (result) => {
           setLastCorrect(result.correct);
-          setAnswer('');
+          setPendingAnswer(null);
         },
       },
     );
@@ -225,23 +216,9 @@ function DuelPlay({ duelId, answeredCount }: { duelId: string; answeredCount: nu
         {current.prompt}
       </Typography>
 
-      {current.options.length > 0 ? (
-        <RadioGroup value={answer} onChange={(e) => setAnswer(e.target.value)}>
-          {current.options.map((opt) => (
-            <FormControlLabel key={opt.id} value={opt.id} control={<Radio />} label={opt.text} />
-          ))}
-        </RadioGroup>
-      ) : (
-        <TextField
-          label="Válasz"
-          value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          fullWidth
-          multiline
-          minRows={2}
-          sx={{ mt: 1 }}
-        />
-      )}
+      <Box sx={{ mt: 1 }}>
+        <DuelExerciseInput exercise={current} onChange={setPendingAnswer} />
+      </Box>
 
       {lastCorrect !== null && (
         <Alert severity={lastCorrect ? 'success' : 'warning'} sx={{ mt: 2 }}>
@@ -253,7 +230,7 @@ function DuelPlay({ duelId, answeredCount }: { duelId: string; answeredCount: nu
         <Button
           variant="contained"
           onClick={onSubmit}
-          disabled={submit.isPending || answer.trim() === ''}
+          disabled={submit.isPending || pendingAnswer === null}
         >
           Beküldés
         </Button>

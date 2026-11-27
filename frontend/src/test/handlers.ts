@@ -646,11 +646,11 @@ export const duelDetailFixture = {
 };
 
 export const duelExercisesFixture = [
-  { position: 0, exerciseId: 'bbbbbbbb-0000-0000-0000-000000000001', type: 'MULTIPLE_CHOICE', prompt: 'Hello magyarul?', options: [{ id: 'o1', text: 'Szia' }, { id: 'o2', text: 'Viszlát' }], maxPoints: 10 },
-  { position: 1, exerciseId: 'bbbbbbbb-0000-0000-0000-000000000002', type: 'MULTIPLE_CHOICE', prompt: 'Good morning?', options: [{ id: 'o1', text: 'Jó reggelt' }, { id: 'o2', text: 'Jó éjt' }], maxPoints: 10 },
-  { position: 2, exerciseId: 'bbbbbbbb-0000-0000-0000-000000000003', type: 'MULTIPLE_CHOICE', prompt: 'Thank you?', options: [{ id: 'o1', text: 'Köszönöm' }, { id: 'o2', text: 'Kérem' }], maxPoints: 10 },
-  { position: 3, exerciseId: 'bbbbbbbb-0000-0000-0000-000000000004', type: 'MULTIPLE_CHOICE', prompt: 'Yes?', options: [{ id: 'o1', text: 'Igen' }, { id: 'o2', text: 'Nem' }], maxPoints: 10 },
-  { position: 4, exerciseId: 'bbbbbbbb-0000-0000-0000-000000000005', type: 'MULTIPLE_CHOICE', prompt: 'Please?', options: [{ id: 'o1', text: 'Kérem' }, { id: 'o2', text: 'Köszönöm' }], maxPoints: 10 },
+  { position: 0, exerciseId: 'bbbbbbbb-0000-0000-0000-000000000001', type: 'MULTIPLE_CHOICE', prompt: 'Hello magyarul?', options: [{ id: 'o1', text: 'Szia' }, { id: 'o2', text: 'Viszlát' }], content: { type: 'MULTIPLE_CHOICE', multiSelect: false, options: [{ id: 'o1', text: 'Szia' }, { id: 'o2', text: 'Viszlát' }] }, maxPoints: 10 },
+  { position: 1, exerciseId: 'bbbbbbbb-0000-0000-0000-000000000002', type: 'MULTIPLE_CHOICE', prompt: 'Good morning?', options: [{ id: 'o1', text: 'Jó reggelt' }, { id: 'o2', text: 'Jó éjt' }], content: { type: 'MULTIPLE_CHOICE', multiSelect: false, options: [{ id: 'o1', text: 'Jó reggelt' }, { id: 'o2', text: 'Jó éjt' }] }, maxPoints: 10 },
+  { position: 2, exerciseId: 'bbbbbbbb-0000-0000-0000-000000000003', type: 'MULTIPLE_CHOICE', prompt: 'Thank you?', options: [{ id: 'o1', text: 'Köszönöm' }, { id: 'o2', text: 'Kérem' }], content: { type: 'MULTIPLE_CHOICE', multiSelect: false, options: [{ id: 'o1', text: 'Köszönöm' }, { id: 'o2', text: 'Kérem' }] }, maxPoints: 10 },
+  { position: 3, exerciseId: 'bbbbbbbb-0000-0000-0000-000000000004', type: 'MULTIPLE_CHOICE', prompt: 'Yes?', options: [{ id: 'o1', text: 'Igen' }, { id: 'o2', text: 'Nem' }], content: { type: 'MULTIPLE_CHOICE', multiSelect: false, options: [{ id: 'o1', text: 'Igen' }, { id: 'o2', text: 'Nem' }] }, maxPoints: 10 },
+  { position: 4, exerciseId: 'bbbbbbbb-0000-0000-0000-000000000005', type: 'MULTIPLE_CHOICE', prompt: 'Please?', options: [{ id: 'o1', text: 'Kérem' }, { id: 'o2', text: 'Köszönöm' }], content: { type: 'MULTIPLE_CHOICE', multiSelect: false, options: [{ id: 'o1', text: 'Kérem' }, { id: 'o2', text: 'Köszönöm' }] }, maxPoints: 10 },
 ];
 
 export const notificationSummaryFixture = {
