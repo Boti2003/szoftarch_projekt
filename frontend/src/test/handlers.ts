@@ -742,6 +742,21 @@ export const socialHandlers = [
   // Notifications
   http.get('/api/v1/notifications/summary', () => HttpResponse.json(notificationSummaryFixture)),
 
+  // Identity public profile lookup (resolves a UUID to a display name)
+  http.get('/api/v1/users/:id/public', ({ params }) => {
+    const id = params.id as string;
+    const known: Record<string, { username: string; displayName: string; level: number; totalPoints: number }> = {
+      [FRIEND_ID_1]: { username: 'bela', displayName: 'Bela Kovacs', level: 4, totalPoints: 500 },
+      [FRIEND_ID_2]: { username: 'cecil', displayName: 'Cecil Nagy', level: 2, totalPoints: 120 },
+      [PENDING_SENDER_ID]: { username: 'daniel', displayName: 'Daniel Szabo', level: 3, totalPoints: 300 },
+    };
+    const hit = known[id];
+    if (!hit) {
+      return new HttpResponse(null, { status: 404 });
+    }
+    return HttpResponse.json({ id, ...hit });
+  }),
+
   // Identity username search (add-friend)
   http.get('/api/v1/users/search', ({ request }) => {
     const url = new URL(request.url);

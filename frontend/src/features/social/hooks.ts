@@ -1,7 +1,7 @@
 // TanStack Query hooks for the social feature (see the learning feature hooks
 // for the useQuery/useMutation + invalidation pattern). Query keys are stable
 // arrays so mutations can invalidate precisely.
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   acceptDuel,
   acceptFriendRequest,
@@ -17,6 +17,7 @@ import {
   rejectDuel,
   rejectFriendRequest,
   removeFriend,
+  getPublicProfile,
   searchUsers,
   sendFriendRequest,
   submitDuelAnswer,
@@ -233,4 +234,38 @@ export function useUserSearch(username: string) {
     queryFn: () => searchUsers(trimmed),
     enabled: trimmed.length >= 2,
   });
+}
+
+// Resolves a set of user UUIDs to their public profiles (display names), used by
+// the request/duel screens where the social service returns only ids. Each id
+// is cached individually under its own query key, so a given user is fetched
+// once and reused across screens. Missing/failed lookups simply stay absent
+// from the returned map, and the UI falls back to a short-id label.
+const USER_PROFILE_STALE_MS = 5 * 60_000;
+
+export function userProfileQueryKey(id: Uuid) {
+  return ['social', 'user-profile', id] as const;
+}
+
+export function useUserProfiles(ids: Uuid[]): Map<Uuid, PublicProfile> {
+  // Dedupe so the same id is not fetched twice within one screen.
+  const uniqueIds = Array.from(new Set(ids.filter((id) => id.length > 0)));
+
+  const results = useQueries({
+    queries: uniqueIds.map((id) => ({
+      queryKey: userProfileQueryKey(id),
+      queryFn: () => getPublicProfile(id),
+      staleTime: USER_PROFILE_STALE_MS,
+      // A failed lookup should not spam retries; the UI degrades gracefully.
+      retry: false,
+    })),
+  });
+
+  const map = new Map<Uuid, PublicProfile>();
+  results.forEach((result, index) => {
+    if (result.data) {
+      map.set(uniqueIds[index], result.data);
+    }
+  });
+  return map;
 }

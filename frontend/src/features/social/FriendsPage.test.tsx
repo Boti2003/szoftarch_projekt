@@ -32,6 +32,8 @@ test('a Kérelmek fülön megjelenik a beérkező barátkérelem elfogad/elutas�
   fireEvent.click(screen.getByRole('tab', { name: 'Kérelmek' }));
 
   expect(await screen.findByText('Barátkérelmet küldött neked')).toBeInTheDocument();
+  // The sender UUID is resolved to a display name via Identity /users/{id}/public.
+  expect(await screen.findByText('Daniel Szabo')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Elfogad' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Elutasít' })).toBeInTheDocument();
 });

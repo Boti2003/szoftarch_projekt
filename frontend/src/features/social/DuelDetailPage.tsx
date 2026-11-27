@@ -26,6 +26,7 @@ import {
   useDuelExercises,
   useRejectDuel,
   useSubmitDuelAnswer,
+  useUserProfiles,
 } from './hooks';
 import { userLabel } from './format';
 import type { DuelDetailView, DuelStatus } from './types';
@@ -52,6 +53,11 @@ export function DuelDetailPage() {
   const duel = useDuel(id);
   const accept = useAcceptDuel();
   const reject = useRejectDuel();
+  // Resolve the counterpart id to a display name (empty until the duel loads).
+  const d0 = duel.data;
+  const counterpartForProfiles =
+    d0 && user ? (user.id === d0.challengerId ? d0.opponentId : d0.challengerId) : null;
+  const profiles = useUserProfiles(counterpartForProfiles ? [counterpartForProfiles] : []);
 
   if (duel.isLoading) {
     return (
@@ -91,7 +97,7 @@ export function DuelDetailPage() {
         <Chip label={STATUS_LABELS[d.status]} color="primary" />
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 3 }}>
-        Ellenfél: {userLabel(counterpartId)}
+        Ellenfél: {userLabel(counterpartId, profiles.get(counterpartId)?.displayName)}
       </Typography>
 
       {/* Pending challenge the opponent can accept/reject */}

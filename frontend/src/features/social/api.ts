@@ -120,6 +120,11 @@ export function getNotificationSummary(): Promise<NotificationSummaryView> {
   return apiGet<NotificationSummaryView>('/notifications/summary');
 }
 
+// --- Identity public profile (resolve a UUID to a display name) ---
+export function getPublicProfile(userId: Uuid): Promise<PublicProfile> {
+  return apiGet<PublicProfile>(`/users/${userId}/public`);
+}
+
 // --- Identity username search (add-friend flow) ---
 export function searchUsers(username: string): Promise<PublicProfile[]> {
   return apiGet<PublicProfile[]>(`/users/search?username=${encodeURIComponent(username)}`);

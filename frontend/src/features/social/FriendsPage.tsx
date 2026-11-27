@@ -26,6 +26,7 @@ import {
   useRejectFriendRequest,
   useRemoveFriend,
   useSendFriendRequest,
+  useUserProfiles,
   useUserSearch,
 } from './hooks';
 import { userLabel } from './format';
@@ -148,6 +149,15 @@ function FriendRequestsPanel({ onMessage }: { onMessage: (m: string) => void }) 
   const accept = useAcceptFriendRequest();
   const reject = useRejectFriendRequest();
 
+  const incomingItems = incoming.data?.items ?? [];
+  const outgoingItems = outgoing.data?.items ?? [];
+  // Resolve the counterpart ids (sender on incoming, receiver on outgoing) to
+  // display names; falls back to a short-id label while loading / on failure.
+  const profiles = useUserProfiles([
+    ...incomingItems.map((r) => r.senderId),
+    ...outgoingItems.map((r) => r.receiverId),
+  ]);
+
   const isLoading = incoming.isLoading || outgoing.isLoading;
   const isError = incoming.isError || outgoing.isError;
 
@@ -165,9 +175,6 @@ function FriendRequestsPanel({ onMessage }: { onMessage: (m: string) => void }) 
       </Alert>
     );
   }
-
-  const incomingItems = incoming.data?.items ?? [];
-  const outgoingItems = outgoing.data?.items ?? [];
 
   return (
     <Stack spacing={3}>
@@ -214,7 +221,7 @@ function FriendRequestsPanel({ onMessage }: { onMessage: (m: string) => void }) 
                   }
                 >
                   <ListItemText
-                    primary={userLabel(req.senderId)}
+                    primary={userLabel(req.senderId, profiles.get(req.senderId)?.displayName)}
                     secondary="Barátkérelmet küldött neked"
                   />
                 </ListItem>
@@ -238,7 +245,7 @@ function FriendRequestsPanel({ onMessage }: { onMessage: (m: string) => void }) 
               {outgoingItems.map((req) => (
                 <ListItem key={req.id} divider>
                   <ListItemText
-                    primary={userLabel(req.receiverId)}
+                    primary={userLabel(req.receiverId, profiles.get(req.receiverId)?.displayName)}
                     secondary="Függőben"
                   />
                   <Chip label="PENDING" size="small" variant="outlined" />

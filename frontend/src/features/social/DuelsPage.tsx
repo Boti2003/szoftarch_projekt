@@ -24,7 +24,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useLanguages } from '../learning/hooks';
-import { useCreateDuel, useDuels, useFriends } from './hooks';
+import { useCreateDuel, useDuels, useFriends, useUserProfiles } from './hooks';
 import { userLabel } from './format';
 import type { DuelStatus, DuelSummaryView } from './types';
 
@@ -57,8 +57,9 @@ export function DuelsPage() {
 
   const duels = useDuels(statusFilter === 'ALL' ? undefined : statusFilter);
 
-  const counterpart = (duel: DuelSummaryView) =>
+  const counterpartId = (duel: DuelSummaryView) =>
     user && duel.challengerId === user.id ? duel.opponentId : duel.challengerId;
+  const profiles = useUserProfiles((duels.data ?? []).map(counterpartId));
 
   const roleLabel = (duel: DuelSummaryView) =>
     user && duel.challengerId === user.id ? 'Te hívtad ki' : 'Téged hívott ki';
@@ -116,7 +117,7 @@ export function DuelsPage() {
               <ListItem key={duel.id} divider disablePadding>
                 <ListItemButton onClick={() => navigate(`/duels/${duel.id}`)}>
                   <ListItemText
-                    primary={userLabel(counterpart(duel))}
+                    primary={userLabel(counterpartId(duel), profiles.get(counterpartId(duel))?.displayName)}
                     secondary={roleLabel(duel)}
                   />
                   <Chip

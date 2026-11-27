@@ -35,6 +35,10 @@ test('egy folyamatban lévő párbaj mutatja az aktuális feladatot és a rejtet
 
   // First exercise is shown (answeredCount = 0 in the fixture).
   expect(await screen.findByText('Hello magyarul?')).toBeInTheDocument();
+  // Opponent UUID resolves to a display name in the header.
+  expect(
+    await screen.findByText((_c, el) => el?.textContent === 'Ellenfél: Bela Kovacs'),
+  ).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Beküldés' })).toBeInTheDocument();
 
   // Opponent result is gated until the viewer completes.
