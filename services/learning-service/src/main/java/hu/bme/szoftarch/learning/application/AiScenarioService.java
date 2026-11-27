@@ -5,7 +5,6 @@ import java.time.Instant;
 import java.util.UUID;
 
 import hu.bme.szoftarch.learning.api.BadRequestException;
-import hu.bme.szoftarch.learning.api.ConflictException;
 import hu.bme.szoftarch.learning.api.ForbiddenException;
 import hu.bme.szoftarch.learning.api.NotFoundException;
 import hu.bme.szoftarch.learning.api.dto.ScenarioCompleteResponse;
@@ -173,9 +172,10 @@ public class AiScenarioService {
     @Transactional
     public ScenarioMessageResponse sendMessage(UUID userId, UUID sessionId, String userMessage) {
         ExerciseAttempt attempt = requireOwnedAttempt(userId, sessionId);
-        if (attempt.getTurnCount() >= AUTO_COMPLETE_TURN_LIMIT) {
-            throw new ConflictException("scenario_turn_limit_reached",
-                    "The turn limit has been reached, complete the scenario");
+
+        // Már lezárt munkamenetre nem küldünk több üzenetet: a tárolt eredményt adjuk.
+        if (attempt.getCorrect() != null) {
+            return new ScenarioMessageResponse(null, attempt.getTurnCount(), true, toCompleteResponse(attempt));
         }
 
         ScenarioMessage message = aiEvaluationPort.sendScenarioMessage(
@@ -183,7 +183,14 @@ public class AiScenarioService {
         attempt.updateTurnCount(message.turnCount());
         attemptRepository.save(attempt);
 
-        return new ScenarioMessageResponse(message.aiMessage(), message.turnCount());
+        // Az automatikus lezárási határ elérésekor a kör valódi AI-választ kap,
+        // majd a munkamenet rögtön lezárul és a záró értékelés is visszatér.
+        if (message.turnCount() >= AUTO_COMPLETE_TURN_LIMIT) {
+            ScenarioCompleteResponse result = evaluateAndComplete(userId, attempt);
+            return new ScenarioMessageResponse(message.aiMessage(), message.turnCount(), true, result);
+        }
+
+        return new ScenarioMessageResponse(message.aiMessage(), message.turnCount(), false, null);
     }
 
     /**
@@ -213,13 +220,23 @@ public class AiScenarioService {
                     "The scenario needs at least " + MIN_TURNS_TO_COMPLETE + " turns to complete");
         }
 
+        return evaluateAndComplete(userId, attempt);
+    }
+
+    /**
+     * A záró kiértékelés és pontdöntés: elkéri az AI végső értékelését, kiszámolja
+     * a teljesítettséget és a pontot, menti az eredményt, és első sikeres
+     * teljesítéskor élesíti a pontszándékot. Közös a kézi lezárás és az
+     * automatikus (körhatár) lezárás között.
+     */
+    private ScenarioCompleteResponse evaluateAndComplete(UUID userId, ExerciseAttempt attempt) {
         Exercise exercise = exerciseRepository.findById(attempt.getExerciseId())
                 .orElseThrow(() -> new NotFoundException(
                         "exercise_not_found", "Exercise not found or not available"));
 
-        // (c) Végső kiértékelés az AI service-en, majd a szerveroldali pontdöntés.
+        // Végső kiértékelés az AI service-en, majd a szerveroldali pontdöntés.
         ScenarioEvaluation evaluation = aiEvaluationPort.completeScenarioSession(
-                new CompleteScenarioCommand(sessionId));
+                new CompleteScenarioCommand(attempt.getAiSessionId()));
         BigDecimal average = AiScoring.scenarioAverage(
                 evaluation.comprehensibility(), evaluation.grammar(), evaluation.taskCompletion());
         boolean completed = AiScoring.scenarioCompleted(average);
@@ -227,7 +244,7 @@ public class AiScenarioService {
 
         attempt.applyScenarioResult(average, completed, evaluation.feedback());
 
-        // (d) Pontszándék: csak az ELSŐ sikeres teljesítésre (userId, exerciseId).
+        // Pontszándék: csak az ELSŐ sikeres teljesítésre (userId, exerciseId).
         if (completed) {
             boolean firstSuccess = attemptRepository
                     .findByUserIdAndExerciseId(userId, attempt.getExerciseId()).stream()

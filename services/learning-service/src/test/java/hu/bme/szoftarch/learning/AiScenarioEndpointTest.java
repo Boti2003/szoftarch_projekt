@@ -94,6 +94,11 @@ class AiScenarioEndpointTest {
     }
 
     private void sendMessages(UUID userId, UUID sessionId, int from, int to) throws Exception {
+        // A 8. (AUTO_COMPLETE_TURN_LIMIT) körnél a sendMessage automatikusan lezár,
+        // ezért a záró kiértékelést is stubolni kell, különben NPE lenne a valódi
+        // AI-hívás helyén. A 0.70-es részpontok átlaga >= 0.60, tehát teljesül.
+        when(aiEvaluationPort.completeScenarioSession(any())).thenReturn(new ScenarioEvaluation(
+                new BigDecimal("0.70"), new BigDecimal("0.70"), new BigDecimal("0.70"), "Done."));
         for (int turn = from; turn <= to; turn++) {
             when(aiEvaluationPort.sendScenarioMessage(any()))
                     .thenReturn(new ScenarioMessage("reply", turn));
@@ -286,20 +291,37 @@ class AiScenarioEndpointTest {
     }
 
     @Test
-    void messageAfterEighthTurnIsRejectedTowardCompletion() throws Exception {
+    void messageAtEighthTurnAutoCompletesWithResult() throws Exception {
         UUID userId = UUID.randomUUID();
         UUID en = data.language("en", "English", true);
         UUID lesson = data.lesson(en, 1, "Lesson 1");
         UUID exercise = seedScenario(lesson, 30);
         UUID sessionId = startSession(userId, exercise, UUID.randomUUID(), "Hi");
-        sendMessages(userId, sessionId, 1, 8);
+        sendMessages(userId, sessionId, 1, 7);
+
+        // A 8. (AUTO_COMPLETE_TURN_LIMIT) kör valódi AI-választ kap, majd a
+        // munkamenet automatikusan lezárul: completed=true és a result hordozza a
+        // záró értékelést. 0.80 átlag >= 0.60 -> teljesült, round(0.80 * 30) = 24.
+        when(aiEvaluationPort.sendScenarioMessage(any()))
+                .thenReturn(new ScenarioMessage("final reply", 8));
+        when(aiEvaluationPort.completeScenarioSession(eq(new CompleteScenarioCommand(sessionId))))
+                .thenReturn(new ScenarioEvaluation(
+                        new BigDecimal("0.80"), new BigDecimal("0.80"), new BigDecimal("0.80"), "Done."));
 
         mockMvc.perform(post("/api/v1/ai-scenarios/sessions/" + sessionId + "/messages")
                         .header(HttpHeaders.AUTHORIZATION, token(userId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\": \"one more\"}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("scenario_turn_limit_reached"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiMessage").value("final reply"))
+                .andExpect(jsonPath("$.turnCount").value(8))
+                .andExpect(jsonPath("$.completed").value(true))
+                .andExpect(jsonPath("$.result.completed").value(true))
+                .andExpect(jsonPath("$.result.points").value(24))
+                .andExpect(jsonPath("$.result.feedback").value("Done."));
+
+        ExerciseAttempt attempt = attemptRepository.findByAiSessionId(sessionId).orElseThrow();
+        Assertions.assertThat(attempt.getCorrect()).isTrue();
     }
 
     @Test

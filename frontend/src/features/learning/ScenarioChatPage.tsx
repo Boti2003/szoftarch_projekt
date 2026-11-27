@@ -96,6 +96,12 @@ export function ScenarioChatPage() {
       onSuccess: (data) => {
         setTurns((prev) => [...prev, { role: 'ai', text: data.aiMessage }]);
         setTurnCount(data.turnCount);
+        // Az automatikus lezárási határ elérésekor a backend lezárja a
+        // munkamenetet és a válasz hordozza a záró értékelést; ilyenkor a
+        // beszélgetés véget ér, az eredményt mutatjuk (nincs külön lezárás).
+        if (data.completed && data.result) {
+          setResult(data.result);
+        }
       },
     });
   };

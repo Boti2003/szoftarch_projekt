@@ -12,6 +12,4 @@ public interface ScenarioSessionRepository {
     ScenarioSession save(ScenarioSession session);
 
     Optional<ScenarioSession> findById(UUID id);
-
-    boolean existsByLearningAttemptId(UUID learningAttemptId);
 }

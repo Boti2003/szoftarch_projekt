@@ -128,7 +128,7 @@ class AiClientWireMockTest {
         wireMock.stubFor(post(urlEqualTo("/internal/v1/scenario-sessions/" + sessionId + "/messages"))
                 .willReturn(aResponse().withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("{\"message\":\"Sure.\",\"turnCount\":2}")));
+                        .withBody("{\"aiMessage\":\"Sure.\",\"turnCount\":2}")));
 
         ScenarioMessage result = client.sendScenarioMessage(new SendMessageCommand(
                 sessionId, "I would like a coffee"));

@@ -34,46 +34,29 @@ public class ScenarioSessionService {
 
     /** Új session indítása a megbízható configgal; a nyitó üzenet a configból jön. */
     @Transactional
-    public ScenarioSession start(UUID learningAttemptId, UUID userId, UUID exerciseId, ScenarioConfig config) {
-        if (repository.existsByLearningAttemptId(learningAttemptId)) {
-            throw new IllegalStateException("Ehhez a Learning attempthez már tartozik AI session.");
-        }
-        var session = ScenarioSession.start(
-                UUID.randomUUID(), learningAttemptId, userId, exerciseId, provider, config);
+    public ScenarioSession start(ScenarioConfig config) {
+        var session = ScenarioSession.start(UUID.randomUUID(), provider, config);
         return repository.save(session);
     }
 
     /**
-     * Egy felhasználói forduló: rögzíti a user üzenetet, elkéri az AI válaszát,
-     * majd ha elérte a felső korlátot, automatikusan lezárja a session-t.
+     * Egy felhasználói forduló: rögzíti a user üzenetet, és visszaadja az AI
+     * válaszát. Az AI service nem korlátoz és nem zár le; a fordulószámlálást
+     * és a lezárás szabályát a hívó (Learning) kezeli.
      */
     @Transactional
     public ScenarioSession addUserMessage(UUID sessionId, String content) {
         ScenarioSession session = load(sessionId);
-
-        if (!session.canAcceptUserTurn()) {
-            throw new IllegalStateException("A session nem fogad több üzenetet.");
-        }
-
         session.recordUserMessage(content);
         String reply = languageModel.continueScenario(session.getConfig(), session.conversationHistory());
         session.recordAssistantMessage(reply);
-
-        // A lezárást kizárólag a complete végpont végzi; a message sosem értékel.
-        // A felső forduló-korlát elérése után a következő message elutasul.
         return repository.save(session);
     }
 
-    /** Kézi lezárás a záró értékeléssel (legalább a minimum forduló után). */
+    /** Záró értékelés a teljes beszélgetésből. A lezárás idejét a hívó dönti el. */
     @Transactional
     public ScenarioSession complete(UUID sessionId) {
         ScenarioSession session = load(sessionId);
-
-        if (!session.canComplete()) {
-            throw new IllegalStateException(
-                    "A session legalább " + ScenarioSession.MIN_USER_TURNS_TO_COMPLETE
-                            + " forduló után zárható le.");
-        }
 
         ScenarioEvaluation evaluation =
                 languageModel.evaluateScenario(session.getConfig(), session.conversationHistory());

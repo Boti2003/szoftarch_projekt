@@ -376,6 +376,8 @@ export const scenarioStartFixture: ScenarioStartResponse = {
 export const scenarioMessageFixture: ScenarioMessageResponse = {
   aiMessage: 'Sure, anything else?',
   turnCount: 1,
+  completed: false,
+  result: null,
 };
 
 export const scenarioCompleteFixture: ScenarioCompleteResponse = {

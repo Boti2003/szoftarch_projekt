@@ -850,15 +850,20 @@ class LearningPostgresIT {
                 .thenReturn(new ScenarioSession(aiSessionId, "Welcome!"));
         aiScenarioService.startSession(userId, exercise, UUID.randomUUID().toString());
 
+        // A 8. (AUTO_COMPLETE_TURN_LIMIT) körnél a sendMessage automatikusan lezár,
+        // ezért a záró kiértékelést még a körciklus előtt stubolni kell. 0.70-es
+        // részpontok átlaga >= 0.60 -> teljesült.
+        Mockito.when(aiEvaluationPort.completeScenarioSession(Mockito.any()))
+                .thenReturn(new ScenarioEvaluation(new BigDecimal("0.70"), new BigDecimal("0.70"),
+                        new BigDecimal("0.70"), "Done."));
         for (int turn = 1; turn <= 8; turn++) {
             Mockito.when(aiEvaluationPort.sendScenarioMessage(Mockito.any()))
                     .thenReturn(new ScenarioMessage("reply", turn));
             aiScenarioService.sendMessage(userId, aiSessionId, "hello");
         }
 
-        Mockito.when(aiEvaluationPort.completeScenarioSession(Mockito.any()))
-                .thenReturn(new ScenarioEvaluation(new BigDecimal("0.70"), new BigDecimal("0.70"),
-                        new BigDecimal("0.70"), "Done."));
+        // A 8. kör már lezárta a munkamenetet; a kézi lezárás idempotens, a tárolt
+        // eredményt adja vissza (completed=true).
         ScenarioCompleteResponse complete = aiScenarioService.complete(
                 userId, aiSessionId, UUID.randomUUID().toString());
         assertThat(complete.completed()).isTrue();

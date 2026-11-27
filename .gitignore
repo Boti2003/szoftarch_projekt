@@ -36,3 +36,6 @@ Thumbs.db
 
 # ---- Docker ----
 *.pid
+
+# jqwik (property-based tesztek) futasi cache
+**/.jqwik-database

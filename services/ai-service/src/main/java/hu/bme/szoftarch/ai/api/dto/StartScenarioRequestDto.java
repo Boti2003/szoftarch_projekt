@@ -2,19 +2,15 @@ package hu.bme.szoftarch.ai.api.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Session indítás kérés. A hívó service (Learning) küldi a megbízható
- * kontextust az exercise payloadból. Mind az öt config-mező kötelező.
+ * kontextust az exercise payloadból: öt kötelező config-mező. A hívó nem
+ * ad át belső azonosítót; a session saját UUID-t kap.
  */
 public record StartScenarioRequestDto(
-        @NotNull UUID learningAttemptId,
-        @NotNull UUID userId,
-        @NotNull UUID exerciseId,
         @NotBlank String role,
         @NotBlank String situation,
         @NotEmpty List<@NotBlank String> goals,

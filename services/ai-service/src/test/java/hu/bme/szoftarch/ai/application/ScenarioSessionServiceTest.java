@@ -31,25 +31,15 @@ class ScenarioSessionServiceTest {
 
     @Test
     void startCreatesOpenSessionWithOpeningMessage() {
-        var session = service.start(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), config());
+        var session = service.start(config());
 
         assertThat(session.getStatus()).isEqualTo(SessionStatus.OPEN);
         assertThat(session.getMessages()).hasSize(1);
     }
 
     @Test
-    void duplicateLearningAttemptRejected() {
-        UUID attemptId = UUID.randomUUID();
-        service.start(attemptId, UUID.randomUUID(), UUID.randomUUID(), config());
-
-        assertThatThrownBy(() ->
-                service.start(attemptId, UUID.randomUUID(), UUID.randomUUID(), config()))
-                .isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
     void eachUserMessageGetsAssistantReply() {
-        var started = service.start(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), config());
+        var started = service.start(config());
 
         var updated = service.addUserMessage(started.getId(), "I want a table please");
 
@@ -59,32 +49,28 @@ class ScenarioSessionServiceTest {
     }
 
     @Test
-    void messageNeverAutoCompletesAndRejectsBeyondMax() {
-        var started = service.start(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), config());
+    void messageNeverAutoCompletesOrLimits() {
+        var started = service.start(config());
         UUID id = started.getId();
 
         ScenarioSession last = null;
-        for (int i = 0; i < ScenarioSession.MAX_USER_TURNS; i++) {
+        for (int i = 0; i < 12; i++) {
             last = service.addUserMessage(id, "message number " + i + " with some words");
         }
 
-        // A message sosem értékel: a session OPEN marad a 8. forduló után is.
+        // Az AI service nem korlátoz és nem zár le: a session OPEN marad,
+        // bármennyi üzenet mehet, értékelés nélkül.
         assertThat(last).isNotNull();
         assertThat(last.getStatus()).isEqualTo(SessionStatus.OPEN);
+        assertThat(last.getUserTurnCount()).isEqualTo(12);
         assertThat(last.getFinalEvaluation()).isNull();
-
-        // A 9. message elutasul (felső korlát).
-        assertThatThrownBy(() -> service.addUserMessage(id, "one turn too many"))
-                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    void completeAfterMaxTurnsProducesEvaluation() {
-        var started = service.start(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), config());
+    void completeProducesEvaluationAtAnyTurnCount() {
+        var started = service.start(config());
         UUID id = started.getId();
-        for (int i = 0; i < ScenarioSession.MAX_USER_TURNS; i++) {
-            service.addUserMessage(id, "message number " + i + " with some words");
-        }
+        service.addUserMessage(id, "only one turn here");
 
         var completed = service.complete(id);
 
@@ -94,7 +80,7 @@ class ScenarioSessionServiceTest {
 
     @Test
     void manualCompleteProducesEvaluation() {
-        var started = service.start(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), config());
+        var started = service.start(config());
         UUID id = started.getId();
         service.addUserMessage(id, "one message here");
         service.addUserMessage(id, "two message here");
@@ -109,23 +95,16 @@ class ScenarioSessionServiceTest {
     /** Egyszerű in-memory repository a use case teszteléséhez, DB nélkül. */
     private static class InMemoryRepository implements ScenarioSessionRepository {
         private final Map<UUID, ScenarioSession> store = new HashMap<>();
-        private final Map<UUID, UUID> byAttempt = new HashMap<>();
 
         @Override
         public ScenarioSession save(ScenarioSession session) {
             store.put(session.getId(), session);
-            byAttempt.put(session.getLearningAttemptId(), session.getId());
             return session;
         }
 
         @Override
         public Optional<ScenarioSession> findById(UUID id) {
             return Optional.ofNullable(store.get(id));
-        }
-
-        @Override
-        public boolean existsByLearningAttemptId(UUID learningAttemptId) {
-            return byAttempt.containsKey(learningAttemptId);
         }
     }
 }

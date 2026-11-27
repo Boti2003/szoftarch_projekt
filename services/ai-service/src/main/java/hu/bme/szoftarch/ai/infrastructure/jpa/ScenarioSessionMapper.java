@@ -27,9 +27,10 @@ public class ScenarioSessionMapper {
     public ScenarioSessionEntity toEntity(ScenarioSession session) {
         var entity = new ScenarioSessionEntity(
                 session.getId(),
-                session.getLearningAttemptId(),
-                session.getUserId(),
-                session.getExerciseId(),
+                // A hívó nem ad át belső azonosítót; ezek az oszlopok nullable-ek (V2).
+                null,
+                null,
+                null,
                 session.getStatus().name(),
                 session.getProvider(),
                 session.getUserTurnCount(),
@@ -57,9 +58,6 @@ public class ScenarioSessionMapper {
 
         return ScenarioSession.rehydrate(
                 entity.getId(),
-                entity.getLearningAttemptId(),
-                entity.getUserId(),
-                entity.getExerciseId(),
                 entity.getProvider(),
                 config,
                 SessionStatus.valueOf(entity.getStatus()),

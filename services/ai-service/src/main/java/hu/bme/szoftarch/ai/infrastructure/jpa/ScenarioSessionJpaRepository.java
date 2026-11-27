@@ -8,6 +8,4 @@ import java.util.UUID;
  * Spring Data JPA repository a session-entitáshoz.
  */
 public interface ScenarioSessionJpaRepository extends JpaRepository<ScenarioSessionEntity, UUID> {
-
-    boolean existsByLearningAttemptId(UUID learningAttemptId);
 }

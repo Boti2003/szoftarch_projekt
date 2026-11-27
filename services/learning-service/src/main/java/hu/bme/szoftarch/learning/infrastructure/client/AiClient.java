@@ -99,10 +99,10 @@ public class AiClient implements AiEvaluationPort {
                 + command.aiSessionId() + "/messages";
         ScenarioMessageResponse response = post(uri, body, ScenarioMessageResponse.class,
                 "scenario message");
-        if (response.message() == null) {
+        if (response.aiMessage() == null) {
             throw malformed("scenario message");
         }
-        return new ScenarioMessage(response.message(), response.turnCount());
+        return new ScenarioMessage(response.aiMessage(), response.turnCount());
     }
 
     @Override

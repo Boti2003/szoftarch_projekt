@@ -38,8 +38,8 @@ paths:
       tags: [scenarios]
       summary: Session indítása megbízható scenario configgal
       description: >
-        A config az exercise payloadból jön (öt kötelező mező). Egy
-        learningAttemptId-hoz egy session tartozhat; ismétlésre 409.
+        A config az exercise payloadból jön (öt kötelező mező). A hívó nem ad
+        át belső azonosítót; a session saját UUID-t kap.
       requestBody:
         required: true
         content:
@@ -52,7 +52,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/StartScenarioResponse' }
         '400': { $ref: '#/components/responses/Problem' }
-        '409': { $ref: '#/components/responses/Problem' }
         '502': { $ref: '#/components/responses/Problem' }
 
   /scenario-sessions/{id}/messages:
@@ -135,11 +134,8 @@ components:
 
     StartScenarioRequest:
       type: object
-      required: [learningAttemptId, userId, exerciseId, role, situation, goals, targetLanguageCode, openingMessage]
+      required: [role, situation, goals, targetLanguageCode, openingMessage]
       properties:
-        learningAttemptId: { type: string, format: uuid, description: "a hívó által birtokolt, egyedi" }
-        userId: { type: string, format: uuid }
-        exerciseId: { type: string, format: uuid }
         role: { type: string }
         situation: { type: string }
         goals:

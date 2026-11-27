@@ -28,13 +28,13 @@ public class ScenarioSessionEntity {
     @Column(name = "id")
     private UUID id;
 
-    @Column(name = "learning_attempt_id", nullable = false, unique = true)
+    @Column(name = "learning_attempt_id")
     private UUID learningAttemptId;
 
-    @Column(name = "user_id", nullable = false)
+    @Column(name = "user_id")
     private UUID userId;
 
-    @Column(name = "exercise_id", nullable = false)
+    @Column(name = "exercise_id")
     private UUID exerciseId;
 
     @Column(name = "status", nullable = false)

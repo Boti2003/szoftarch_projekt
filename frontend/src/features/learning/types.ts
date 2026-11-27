@@ -224,6 +224,8 @@ export interface ScenarioStartResponse {
 export interface ScenarioMessageResponse {
   aiMessage: string;
   turnCount: number;
+  completed: boolean;
+  result: ScenarioCompleteResponse | null;
 }
 
 export interface ScenarioCompleteResponse {

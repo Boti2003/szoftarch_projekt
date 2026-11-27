@@ -34,9 +34,4 @@ public class JpaScenarioSessionRepository implements ScenarioSessionRepository {
     public Optional<ScenarioSession> findById(UUID id) {
         return jpaRepository.findById(id).map(mapper::toDomain);
     }
-
-    @Override
-    public boolean existsByLearningAttemptId(UUID learningAttemptId) {
-        return jpaRepository.existsByLearningAttemptId(learningAttemptId);
-    }
 }

@@ -59,9 +59,9 @@ public class FakeLanguageModelClient implements LanguageModelClient {
         // A valódi adapter ezt a külső modell válaszára cseréli.
         String role = config.role() == null || config.role().isBlank() ? "partner" : config.role();
         return switch ((int) Math.min(userTurns, 3)) {
-            case 0, 1 -> "(" + role + ") Rendben, értem. Mesélj még erről: \"" + shorten(lastUser) + "\"?";
-            case 2 -> "(" + role + ") Jó. És mit szeretnél még tenni ebben a helyzetben?";
-            default -> "(" + role + ") Köszönöm, azt hiszem minden megvan, amire szükség volt.";
+            case 0, 1 -> "(" + role + ") Alright, I see. Tell me more about this: \"" + shorten(lastUser) + "\"?";
+            case 2 -> "(" + role + ") Good. And what else would you like to do in this situation?";
+            default -> "(" + role + ") Thank you, I think we have everything we needed.";
         };
     }
 
@@ -88,8 +88,8 @@ public class FakeLanguageModelClient implements LanguageModelClient {
 
         double overall = (comprehensibility + grammar + taskCompletion) / 3.0;
         String feedback = overall >= ScenarioEvaluation.PASS_THRESHOLD
-                ? "Szép munka, a beszélgetés célját elérted."
-                : "A beszélgetés rövid vagy hiányos maradt, próbálj részletesebben válaszolni.";
+                ? "Well done, you achieved the goal of the conversation."
+                : "The conversation stayed short or incomplete; try to answer in more detail.";
 
         return new ScenarioEvaluation(
                 round2(comprehensibility), round2(grammar), round2(taskCompletion), feedback);
@@ -129,15 +129,15 @@ public class FakeLanguageModelClient implements LanguageModelClient {
 
     private String buildFeedback(double score) {
         if (score >= 0.9) {
-            return "Kiváló fordítás, szinte teljesen egyezik az elvárttal.";
+            return "Excellent translation, it matches the expected answer almost perfectly.";
         }
         if (score >= TranslationEvaluation.ACCEPTANCE_THRESHOLD) {
-            return "Jó fordítás, a lényeg átjött. Néhány szó eltér a referenciától.";
+            return "Good translation, the meaning came across. A few words differ from the reference.";
         }
         if (score >= 0.4) {
-            return "Részben helyes, de több kulcsszó hiányzik vagy eltér.";
+            return "Partially correct, but several key words are missing or differ.";
         }
-        return "A fordítás jelentősen eltér az elvárttól, próbáld újra.";
+        return "The translation differs significantly from the expected answer, try again.";
     }
 
     /**

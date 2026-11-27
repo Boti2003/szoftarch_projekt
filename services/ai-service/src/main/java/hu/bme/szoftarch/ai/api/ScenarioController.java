@@ -46,8 +46,7 @@ public class ScenarioController {
         var config = new ScenarioConfig(
                 body.role(), body.situation(), goal, body.targetLanguageCode(), body.openingMessage());
 
-        ScenarioSession session = service.start(
-                body.learningAttemptId(), body.userId(), body.exerciseId(), config);
+        ScenarioSession session = service.start(config);
 
         return new StartScenarioResponseDto(session.getId(), openingMessageOf(session));
     }
@@ -57,13 +56,17 @@ public class ScenarioController {
     public ScenarioMessageResponseDto sendMessage(
             @PathVariable UUID id, @Valid @RequestBody ScenarioMessageRequestDto body) {
         ScenarioSession session = service.addUserMessage(id, body.message());
-        return new ScenarioMessageResponseDto(lastAssistantMessageOf(session), session.getUserTurnCount());
+        return new ScenarioMessageResponseDto(
+                lastAssistantMessageOf(session), session.getUserTurnCount());
     }
 
     @PostMapping(value = "/{id}/complete", produces = MediaType.APPLICATION_JSON_VALUE)
     public ScenarioEvaluationResponseDto complete(@PathVariable UUID id) {
         ScenarioSession session = service.complete(id);
-        ScenarioEvaluation e = session.getFinalEvaluation();
+        return toEvaluationDto(session.getFinalEvaluation());
+    }
+
+    private ScenarioEvaluationResponseDto toEvaluationDto(ScenarioEvaluation e) {
         return new ScenarioEvaluationResponseDto(
                 e.comprehensibility(), e.grammar(), e.taskCompletion(), e.feedback());
     }

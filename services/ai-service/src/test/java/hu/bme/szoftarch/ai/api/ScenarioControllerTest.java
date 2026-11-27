@@ -45,15 +45,11 @@ class ScenarioControllerTest {
 
     private ScenarioSession sampleSession() {
         var config = new ScenarioConfig("waiter", "restaurant", "order food", "en", "Welcome!");
-        return ScenarioSession.start(
-                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "fake", config);
+        return ScenarioSession.start(UUID.randomUUID(), "fake", config);
     }
 
     private Map<String, Object> validStartBody() {
         return Map.of(
-                "learningAttemptId", UUID.randomUUID().toString(),
-                "userId", UUID.randomUUID().toString(),
-                "exerciseId", UUID.randomUUID().toString(),
                 "role", "waiter",
                 "situation", "restaurant",
                 "goals", List.of("order food", "pay the bill"),
@@ -63,7 +59,7 @@ class ScenarioControllerTest {
 
     @Test
     void startReturnsIdAndOpeningMessage() throws Exception {
-        when(service.start(any(), any(), any(), any())).thenReturn(sampleSession());
+        when(service.start(any())).thenReturn(sampleSession());
 
         mockMvc.perform(post("/internal/v1/scenario-sessions")
                         .contentType("application/json")
