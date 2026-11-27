@@ -1,0 +1,22 @@
+# =========================================================================
+# DEVELOPMENT / DEMO profile  (activate with --spring.profiles.active=dev
+# or SPRING_PROFILES_ACTIVE=dev).
+#
+# WARNING: this profile DISABLES authentication. DevSecurityConfig permits
+# every request so the API and Swagger UI can be explored without a real
+# RS256 token from Identity. NEVER enable "dev" in a deployed environment.
+# =========================================================================
+
+spring:
+  autoconfigure:
+    # The base application.yml always carries a jwk-set-uri (it has a default),
+    # which would otherwise trigger Boot's OAuth2 resource-server autoconfig and
+    # build a JwtDecoder / an extra security chain. Under "dev" the production
+    # SecurityConfig is switched off (@Profile("!dev")) and DevSecurityConfig
+    # permits all, so we also exclude the resource-server autoconfiguration to
+    # keep exactly one permit-all SecurityFilterChain and avoid needing a JWKS.
+    exclude:
+      - org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerAutoConfiguration
+
+# Leave springdoc at its defaults: Swagger UI + /v3/api-docs remain enabled so
+# the whole point of this profile (browsing the API) works.

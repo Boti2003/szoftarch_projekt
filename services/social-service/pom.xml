@@ -15,6 +15,27 @@
     <name>social-service</name>
     <description>Social Service â€“ barĂˇtok, ranglista, pĂˇrbaj Ă©letciklus</description>
 
+    <properties>
+        <!-- Not managed by the reactor parent; pinned explicitly. -->
+        <testcontainers.version>1.20.4</testcontainers.version>
+        <jqwik.version>1.9.3</jqwik.version>
+        <wiremock.version>3.12.1</wiremock.version>
+        <!-- springdoc 3.x targets Spring Boot 4 (2.x is Boot 3 only). -->
+        <springdoc.version>3.2.0</springdoc.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -32,11 +53,31 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- RS256 access-token validation against Identity's JWKS (task 11). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- OpenAPI 3 description + Swagger UI served by the running app
+             (/swagger-ui.html, /v3/api-docs). springdoc 3.x for Spring Boot 4. -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- Spring Boot 4 moved FlywayAutoConfiguration into its own
+             spring-boot-flyway module; flyway-core alone no longer triggers
+             Boot's auto-migration on startup. Version managed by the Boot BOM. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-flyway</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -56,6 +97,43 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+          Spring Boot 4 split the monolithic test-slice autoconfigure module into
+          one artifact per technology. @DataJpaTest (now in
+          org.springframework.boot.data.jpa.test.autoconfigure), its
+          @AutoConfigureTestDatabase / @AutoConfigureJdbc meta-annotations (in
+          org.springframework.boot.jdbc.test.autoconfigure), and TestEntityManager
+          (in org.springframework.boot.jpa.test.autoconfigure) each live in their
+          own test slice jar that spring-boot-starter-test no longer pulls in.
+          Versions are managed by the Spring Boot BOM.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-data-jpa-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          @WebMvcTest and its @AutoConfigureMockMvc meta-annotation also moved
+          into a dedicated Spring Boot 4 test-slice module
+          (org.springframework.boot.webmvc.test.autoconfigure), which
+          spring-boot-starter-test no longer pulls in. Required by the API
+          controller MVC slice tests (task 10.4). Version managed by the BOM.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jdbc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jpa-test</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-test</artifactId>
@@ -64,6 +142,34 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Testcontainers (versions managed by the imported testcontainers-bom). -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- WireMock standalone (shaded deps) for outbound adapter tests. -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>${wiremock.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- jqwik property-based testing. -->
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <version>${jqwik.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

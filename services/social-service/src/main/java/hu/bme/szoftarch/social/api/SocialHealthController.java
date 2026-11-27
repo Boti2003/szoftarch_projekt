@@ -7,7 +7,7 @@ import java.util.Map;
 
 /**
  * Skeleton health végpont. A service gazdája ezt a csomagot tölti fel
- * a valódi REST controllerekkel (D05: api réteg).
+ * a valódi REST controllerekkel.
  */
 @RestController
 public class SocialHealthController {
